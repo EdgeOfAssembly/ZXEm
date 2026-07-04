@@ -1,0 +1,196 @@
+{
+  "game": "Manic Miner",
+  "publisher": "Bug-Byte Software",
+  "year": 1983,
+  "author": "Matthew Smith",
+  "platform": "ZX Spectrum 48K",
+  "snapshot_format": "Z80 v1 compressed 48K",
+
+  "entry_point": "0x85CC",
+  "pc_at_snapshot": "0x9303",
+  "sp_at_snapshot": "0x9CFC",
+  "im_mode": 1,
+
+  "registers_at_snapshot": {
+    "pc": "0x9303",
+    "sp": "0x9CFC",
+    "a": "0xF8",
+    "f": "0x02",
+    "bc": "0x1431",
+    "de": "0x1113",
+    "hl": "0x59F8",
+    "ix": "0x0000",
+    "iy": "0x8486",
+    "bc_alt": "0x1421",
+    "de_alt": "0x369B",
+    "hl_alt": "0x2758",
+    "af_alt": "0x91FF",
+    "i": "0x3F",
+    "r": "0x56",
+    "iff1": 0,
+    "iff2": 0
+  },
+
+  "screen_base": "0x4000",
+  "attr_base": "0x5800",
+  "screen_size": "256x192 pixels, 32x24 attributes",
+  "back_buffer": "0x6000",
+
+  "num_levels": 20,
+  "level_data_address": "0xB000",
+  "level_data_size": 1024,
+  "level_tile_map_size": 512,
+  "level_tile_map_format": "32x16 bytes, one byte per 8x8 cell",
+
+  "willy_sprite_address": "0x8200",
+  "willy_sprite_frames": 16,
+  "willy_sprite_size": "16x16 pixels, 32 bytes per frame (masked)",
+
+  "guardian_table_address": "0x8000",
+  "guardian_table_format": "ASCII comma-separated numbers with embedded control bytes",
+  "guardian_state_table": "0x80BE",
+  "guardian_entry_size": 7,
+  "max_guardians": 5,
+
+  "score_address": "0x8444",
+  "score_format": "6 ASCII digits",
+  "lives_address": "0x8408",
+  "high_score_address": "0x8434",
+  "air_supply_address": "0x8457",
+  "air_display_address": "0x8418",
+  "current_level_address": "0x8407",
+  "game_state_address": "0x845A",
+
+  "keyboard_ports_used": ["0xFE"],
+  "keyboard_rows": {
+    "0xF7FE": "1,2,3,4,5",
+    "0xFBFE": "Q,W,E,R,T (Left movement)",
+    "0xFDFE": "A,S,D,F,G (Pause)",
+    "0xFEFE": "Shift,Z,X,C,V",
+    "0xEFFE": "0,9,8,7,6 (Tune keys)",
+    "0xDFFE": "P,O,I,U,Y (Right movement)",
+    "0xBFFE": "Enter,L,K,J,H (Start, Tune)",
+    "0x7FFE": "Space,.,M,N,B (Jump)"
+  },
+  "key_mappings": {
+    "left": "Q,W,E,R,T",
+    "right": "P,O,I,U,Y",
+    "jump": "Space,.,M,N,B (bottom row)",
+    "pause": "A,S,D,F,G",
+    "tune_toggle": "Enter,L,K,J,H",
+    "start": "Enter"
+  },
+
+  "border_port": "0xFE",
+  "sound_port": "0xFE",
+  "sound_method": "Bit 4 toggling on OUT (0xFE),A (EAR/MIC bit)",
+
+  "kempston_port": "0x1F",
+  "kempston_bits": {
+    "bit0": "Right",
+    "bit1": "Left",
+    "bit2": "Down",
+    "bit3": "Up",
+    "bit4": "Fire"
+  },
+
+  "other_ports": {
+    "0x80": "IN - unknown device (possibly timing or custom interface)",
+    "0x58": "OUT - unknown device (single write at 0x8A21)"
+  },
+
+  "special_item_addresses": [
+    "0x8075", "0x8076", "0x8077", "0x8078", "0x8079"
+  ],
+  "special_items_per_level": 5,
+
+  "willy_state_addresses": {
+    "x_position": "0x8068",
+    "conveyor_counter": "0x8069",
+    "direction_flags": "0x806A",
+    "jump_state": "0x806B",
+    "screen_addr": "0x806C",
+    "air_counter": "0x806E",
+    "fall_distance": "0x806F",
+    "anim_ptr": "0x8070",
+    "anim_frame": "0x8072",
+    "sound_value": "0x8073",
+    "item_flag": "0x8074"
+  },
+
+  "rom_calls": [],
+  "uses_rom": false,
+  "isr_address": "0x0038",
+  "isr_code": "EI; RET",
+
+  "music": {
+    "tune": "In the Hall of the Mountain King (Grieg)",
+    "music_data_address": "0x8500",
+    "music_data_size": 204,
+    "toggle_keys": "H,L"
+  },
+
+  "level_names": [
+    "Central Cavern",
+    "The Cold Room",
+    "The Menagerie",
+    "Abandoned Uranium Workings",
+    "Eugene's Lair",
+    "Processing Plant",
+    "The Vat",
+    "Miner Willy meets the Kong Beast",
+    "Wacky Amoebatrons",
+    "The Endorian Forest",
+    "Attack of the Mutant Telephones",
+    "Return of the Alien Kong Beast",
+    "Ore Refinery",
+    "Skylab Landing Bay",
+    "The Bank",
+    "The Sixteenth Cavern",
+    "The Warehouse",
+    "Amoebatrons' Revenge",
+    "Solar Power Generator",
+    "The Final Barrier"
+  ],
+
+  "tile_ids": {
+    "0x00": "blank/air",
+    "0x0B": "platform",
+    "0x0D": "floor",
+    "0x0E": "conveyor_left",
+    "0x0F": "conveyor_right",
+    "0x10": "background",
+    "0x13": "conveyor_surface",
+    "0x16": "wall",
+    "0x17": "floor_surface",
+    "0x29": "wall_variant",
+    "0x30": "collectible_item",
+    "0x38": "crumbling_floor",
+    "0x45": "wall_variant_2",
+    "0x46": "wall_variant_3",
+    "0x57": "key_door",
+    "0x67": "key_door_variant"
+  },
+
+  "level_script_interpreter": {
+    "address": "0x9200",
+    "script_address": "0x9C00",
+    "script_size": 512,
+    "opcodes": {
+      "0x09": "ADD HL,BC (separator/terminator)",
+      "0x16": "LD D,n (load string of n bytes)",
+      "0x0F": "RRCA (command prefix)",
+      "0x0D": "DEC C",
+      "0x0A": "LD A,(BC)",
+      "0x0B": "DEC BC",
+      "0x0C": "INC C",
+      "0x07": "RLCA",
+      "0x08": "EX AF,AF'",
+      "0x0E": "LD C,n",
+      "0x10": "DJNZ",
+      "0x13": "INC DE",
+      "0x06": "LD B,n",
+      "0x05": "DEC B"
+    }
+  }
+}

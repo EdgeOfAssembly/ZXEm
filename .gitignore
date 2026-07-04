@@ -1,0 +1,25 @@
+# Ignore build artifacts and user-local files
+*.o
+obj/
+zxem
+*.bin
+*.rom
+*.z80
+*.sna
+*.tap
+*.tzx
+config.ini
+savestate.z80
+
+# Do not commit copyrighted ROMs or game snapshots
+rom/
+
+# Editor and OS files
+*.swp
+*.swo
+*~
+.DS_Store
+
+# IDE
+.vscode/
+.idea/

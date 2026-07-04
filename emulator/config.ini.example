@@ -1,0 +1,35 @@
+; ZX Spectrum 48K Emulator configuration file
+; Copy this file to config.ini next to the zxem binary
+; and edit the paths to match your system.
+
+[emulator]
+; Path to the .z80 snapshot to load on startup.
+game = /tmp/reverse/Manic_Miner_1983_Bug_Byte_Software.z80
+
+; Machine model to emulate. Currently only 'spectrum48' is supported.
+; Future options may include: spectrum128, plus2, plus2a, plus3.
+model = spectrum48
+
+[rom]
+; Path to a real 16KB Spectrum 48K ROM image.
+; If this is set, it takes priority over rom_dir.
+; Leave empty or comment out to use rom_dir or the synthetic ROM.
+; file = /tmp/zx-roms/spectrum16-48/spec48.rom
+
+; Directory to scan for a ROM if 'file' is not set.
+; The emulator looks for known filenames (48.rom, spectrum.rom, etc.)
+; or any 16384-byte file in this directory.
+; If no ROM is found, a legally clean synthetic ROM is generated.
+rom_dir = rom
+
+[input]
+; Optional: set SDL joystick index (0 = first joystick)
+; joystick_index = 0
+
+[video]
+; Window scale factor (1-4)
+; scale = 3
+
+[audio]
+; Master volume as a percentage (0-100)
+; volume = 100
