@@ -38,3 +38,8 @@ __pycache__/
 *.tar.gz
 build/
 dist/
+
+# Local session / tool noise
+opencode.jsonc
+session-ses_*.md
+emulator/batch_test_log.json
