@@ -300,14 +300,34 @@ static void handle_key(SDL_Keycode key, bool pressed)
         case SDLK_c: matrix_key(0, 3, pressed); break;
         case SDLK_v: matrix_key(0, 4, pressed); break;
 
-        case SDLK_a: matrix_key(1, 0, pressed); break;
-        case SDLK_s: matrix_key(1, 1, pressed); break;
-        case SDLK_d: matrix_key(1, 2, pressed); break;
+        case SDLK_a:
+            if (g_keymap != "wasd")
+            {
+                matrix_key(1, 0, pressed);
+            }
+            break;
+        case SDLK_s:
+            if (g_keymap != "wasd")
+            {
+                matrix_key(1, 1, pressed);
+            }
+            break;
+        case SDLK_d:
+            if (g_keymap != "wasd")
+            {
+                matrix_key(1, 2, pressed);
+            }
+            break;
         case SDLK_f: matrix_key(1, 3, pressed); break;
         case SDLK_g: matrix_key(1, 4, pressed); break;
 
         case SDLK_q: matrix_key(2, 0, pressed); break;
-        case SDLK_w: matrix_key(2, 1, pressed); break;
+        case SDLK_w:
+            if (g_keymap != "wasd")
+            {
+                matrix_key(2, 1, pressed);
+            }
+            break;
         case SDLK_e: matrix_key(2, 2, pressed); break;
         case SDLK_r: matrix_key(2, 3, pressed); break;
         case SDLK_t: matrix_key(2, 4, pressed); break;
@@ -440,7 +460,7 @@ static void apply_spectrum_keys()
         }
     }
 
-    uint8_t joy = ula.kempston;
+    uint8_t joy = 0;
     if (ks[SDL_SCANCODE_RIGHT])
     {
         joy |= 0x01;
