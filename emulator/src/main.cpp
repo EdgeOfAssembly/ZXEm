@@ -457,6 +457,60 @@ static void apply_spectrum_keys()
     sticky_decay(); /* re-asserts still-sticky taps after memset */
 }
 
+static void pump_input()
+{
+    SDL_Event event;
+    while (SDL_PollEvent(&event))
+    {
+        switch (event.type)
+        {
+            case SDL_QUIT:
+                running = false;
+                break;
+            case SDL_KEYDOWN:
+                if (!event.key.repeat)
+                {
+                    log_info("key down name=%s scancode=%s (%d) sdlk=%d",
+                             SDL_GetKeyName(event.key.keysym.sym),
+                             SDL_GetScancodeName(event.key.keysym.scancode),
+                             static_cast<int>(event.key.keysym.scancode),
+                             static_cast<int>(event.key.keysym.sym));
+                    handle_key(event.key.keysym.sym, true);
+                }
+                break;
+            case SDL_KEYUP:
+                log_info("key up   name=%s scancode=%s (%d)",
+                         SDL_GetKeyName(event.key.keysym.sym),
+                         SDL_GetScancodeName(event.key.keysym.scancode),
+                         static_cast<int>(event.key.keysym.scancode));
+                handle_key(event.key.keysym.sym, false);
+                break;
+            case SDL_WINDOWEVENT:
+                if (event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED)
+                {
+                    log_info("window focus gained");
+                }
+                else if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST)
+                {
+                    log_info("window focus lost — click the ZXEm window, then press 1 then 0");
+                }
+                break;
+            case SDL_JOYBUTTONDOWN:
+                handle_joy_button(event.jbutton.button, true);
+                break;
+            case SDL_JOYBUTTONUP:
+                handle_joy_button(event.jbutton.button, false);
+                break;
+            case SDL_JOYAXISMOTION:
+                handle_joy_axis(event.jaxis.axis, event.jaxis.value);
+                break;
+            default:
+                break;
+        }
+    }
+    apply_spectrum_keys();
+}
+
 static void print_usage(const char* argv0)
 {
     fprintf(stderr,
@@ -911,13 +965,16 @@ int main(int argc, char* argv[])
         window = SDL_CreateWindow("ZXEm " ZXEM_VERSION,
                                   SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                   ULA::SCREEN_WIDTH * g_scale, ULA::SCREEN_HEIGHT * g_scale,
-                                  SDL_WINDOW_SHOWN);
+                                  SDL_WINDOW_SHOWN | SDL_WINDOW_OPENGL);
         if (!window)
         {
             fprintf(stderr, "Window creation failed: %s\n", SDL_GetError());
             SDL_Quit();
             return 1;
         }
+        /* Env SDL_RENDER_VSYNC=1 wins over SetHint; a failed swap can block ~1 s (1 fps). */
+        SDL_SetHintWithPriority(SDL_HINT_RENDER_VSYNC, "0", SDL_HINT_OVERRIDE);
+        SDL_SetHintWithPriority("SDL_RENDER_DRIVER", "opengl", SDL_HINT_DEFAULT);
         renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
         if (!renderer)
         {
@@ -925,6 +982,17 @@ int main(int argc, char* argv[])
             SDL_DestroyWindow(window);
             SDL_Quit();
             return 1;
+        }
+        SDL_RendererInfo rinfo{};
+        if (SDL_GetRendererInfo(renderer, &rinfo) == 0)
+        {
+            log_info("SDL renderer=%s flags=0x%x vsync_hint=0 video=%s",
+                     rinfo.name ? rinfo.name : "?", rinfo.flags,
+                     SDL_GetCurrentVideoDriver());
+            if (rinfo.flags & SDL_RENDERER_SOFTWARE)
+            {
+                log_warn("SDL is using the software renderer");
+            }
         }
         texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
                                     SDL_TEXTUREACCESS_STREAMING,
@@ -1056,66 +1124,11 @@ int main(int argc, char* argv[])
     {
         if (!g_headless)
         {
-            SDL_Event event;
-            while (SDL_PollEvent(&event))
-            {
-                switch (event.type)
-                {
-                    case SDL_QUIT:
-                        running = false;
-                        break;
-                    case SDL_KEYDOWN:
-                        if (!event.key.repeat)
-                        {
-                            log_info("key down name=%s scancode=%s (%d) sdlk=%d",
-                                     SDL_GetKeyName(event.key.keysym.sym),
-                                     SDL_GetScancodeName(event.key.keysym.scancode),
-                                     static_cast<int>(event.key.keysym.scancode),
-                                     static_cast<int>(event.key.keysym.sym));
-                            handle_key(event.key.keysym.sym, true);
-                        }
-                        break;
-                    case SDL_KEYUP:
-                        log_info("key up   name=%s scancode=%s (%d)",
-                                 SDL_GetKeyName(event.key.keysym.sym),
-                                 SDL_GetScancodeName(event.key.keysym.scancode),
-                                 static_cast<int>(event.key.keysym.scancode));
-                        handle_key(event.key.keysym.sym, false);
-                        break;
-                    case SDL_WINDOWEVENT:
-                        if (event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED)
-                        {
-                            log_info("window focus gained");
-                        }
-                        else if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST)
-                        {
-                            log_info("window focus lost — click the ZXEm window, then press 1 then 0");
-                        }
-                        break;
-                    case SDL_JOYBUTTONDOWN:
-                        handle_joy_button(event.jbutton.button, true);
-                        break;
-                    case SDL_JOYBUTTONUP:
-                        handle_joy_button(event.jbutton.button, false);
-                        break;
-                    case SDL_JOYAXISMOTION:
-                        handle_joy_axis(event.jaxis.axis, event.jaxis.value);
-                        break;
-                    default:
-                        break;
-                }
-            }
-            apply_spectrum_keys();
-            if ((ula.keyboard[3] & 1) == 0 || (ula.keyboard[4] & 1) == 0)
-            {
-                log_info("matrix 1=%s 0=%s row3=0x%02X row4=0x%02X",
-                         (ula.keyboard[3] & 1) ? "up" : "DOWN",
-                         (ula.keyboard[4] & 1) ? "up" : "DOWN",
-                         ula.keyboard[3], ula.keyboard[4]);
-            }
+            pump_input();
         }
 
         int tstates_this_frame = 0;
+        int poll_acc = 0;
         while (tstates_this_frame < TSTATES_PER_FRAME)
         {
             const int ts = (z80.*cpu_step)();
@@ -1125,6 +1138,12 @@ int main(int argc, char* argv[])
                 updateAudio(ts);
             }
             tstates_this_frame += ts;
+            poll_acc += ts;
+            if (!g_headless && poll_acc >= 17472)
+            {
+                poll_acc = 0;
+                pump_input();
+            }
 
             if (ula.frame_tstates >= TSTATES_PER_FRAME)
             {
@@ -1166,7 +1185,8 @@ int main(int argc, char* argv[])
         frame_count++;
         if (frame_count % 50 == 0)
         {
-            log_debug("frame %d PC=0x%04X SP=0x%04X", frame_count, z80.PC, z80.SP);
+            log_info("frame %d PC=0x%04X (~50 frames; if this is ~1s wall, fps is ok)",
+                     frame_count, z80.PC);
         }
 
         if (g_max_frames > 0 && frame_count >= g_max_frames)
