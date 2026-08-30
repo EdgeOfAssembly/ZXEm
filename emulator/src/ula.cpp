@@ -81,59 +81,7 @@ void ULA::m1_notify(uint16_t addr)
     }
 }
 
-int ULA::rom_index() const
-{
-    if (plus3)
-    {
-        return ((port1ffd >> 1) & 2) | ((port7ffd >> 4) & 1);
-    }
-    return (is128 && (port7ffd & 0x10)) ? 1 : 0;
-}
 
-uint8_t ULA::paged_bank() const
-{
-    return is128 ? static_cast<uint8_t>(port7ffd & 0x07) : 0;
-}
-
-uint8_t ULA::read(uint16_t addr) {
-    if (plus3 && (port1ffd & 0x01))
-    {
-        static const int maps[4][4] = {
-            {0, 1, 2, 3},
-            {4, 5, 6, 7},
-            {4, 5, 6, 3},
-            {4, 7, 6, 3}
-        };
-        const int mode = (port1ffd >> 1) & 3;
-        const int slot = addr >> 14;
-        return ram_banks[maps[mode][slot]][addr & 0x3FFF];
-    }
-    if (addr < 0x4000) {
-        if (trdos_paged && trdos_present)
-        {
-            return trdos_rom[addr];
-        }
-        switch (rom_index())
-        {
-            case 1:
-                return rom1[addr];
-            case 2:
-                return rom2[addr];
-            case 3:
-                return rom3[addr];
-            default:
-                return rom[addr];
-        }
-    }
-    /* 48K and 128K share the same CPU map: 5 / 2 / paged. */
-    if (addr < 0x8000) {
-        return ram_banks[5][addr - 0x4000];
-    }
-    if (addr < 0xC000) {
-        return ram_banks[2][addr - 0x8000];
-    }
-    return ram_banks[paged_bank()][addr - 0xC000];
-}
 
 void ULA::write(uint16_t addr, uint8_t val) {
     if (plus3 && (port1ffd & 0x01))
@@ -365,27 +313,7 @@ void ULA::step(int cycles) {
     }
 }
 
-bool ULA::isContended(uint16_t addr, int tstate) {
-    bool contended_addr = false;
-    if (addr >= 0x4000 && addr <= 0x7FFF)
-    {
-        contended_addr = true;
-    }
-    else if (is128 && addr >= 0xC000)
-    {
-        /* Odd-numbered banks are contended on 128K. */
-        contended_addr = (paged_bank() & 1) != 0;
-    }
-    if (!contended_addr)
-    {
-        return false;
-    }
-    int line_ts = tstate % TSTATES_PER_LINE;
-    int cur_line = (tstate / TSTATES_PER_LINE) % LINES_PER_FRAME;
-    if (cur_line < ULA_FIRST_LINE || cur_line >= ULA_LAST_LINE) return false;
-    if (line_ts < ULA_FIRST_PIXEL - 1 || line_ts >= ULA_LAST_PIXEL) return false;
-    return true;
-}
+
 
 void ULA::renderFrame(uint32_t* pixels, int pitch) {
     static const uint32_t palette[16] = {

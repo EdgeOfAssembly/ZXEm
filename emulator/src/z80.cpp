@@ -33,18 +33,7 @@ bool Z80::parity(uint8_t v) {
     return !(v & 1);
 }
 
-uint8_t Z80::memRead(uint16_t addr) {
-    int t = ula->tstates;
-    uint8_t v = ula->read(addr);
-    if (ula->isContended(addr, t)) tstates++;
-    return v;
-}
 
-void Z80::memWrite(uint16_t addr, uint8_t val) {
-    int t = ula->tstates;
-    ula->write(addr, val);
-    if (ula->isContended(addr, t)) tstates++;
-}
 
 uint8_t Z80::ioRead(uint16_t port) {
     return ula->ioRead(port);

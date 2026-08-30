@@ -1,7 +1,6 @@
 #pragma once
 #include <cstdint>
-
-class ULA;
+#include "ula.h"
 
 class Z80 {
 public:
@@ -41,8 +40,23 @@ public:
     void setDE_(uint16_t v) { D_ = (uint8_t)(v >> 8); E_ = (uint8_t)(v & 0xFF); }
     void setHL_(uint16_t v) { H_ = (uint8_t)(v >> 8); L_ = (uint8_t)(v & 0xFF); }
 
-    uint8_t memRead(uint16_t addr);
-    void memWrite(uint16_t addr, uint8_t val);
+    uint8_t memRead(uint16_t addr)
+    {
+        const uint8_t v = ula->read(addr);
+        if (ula->isContended(addr))
+        {
+            tstates++;
+        }
+        return v;
+    }
+    void memWrite(uint16_t addr, uint8_t val)
+    {
+        ula->write(addr, val);
+        if (ula->isContended(addr))
+        {
+            tstates++;
+        }
+    }
     uint8_t ioRead(uint16_t port);
     void ioWrite(uint16_t port, uint8_t val);
 

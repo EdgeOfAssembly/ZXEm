@@ -48,6 +48,29 @@ TEST_CASE("bitmap address differs for scanlines in the same cell")
     REQUIRE(pixels[1] == 0xFF000000); /* paper */
 }
 
+TEST_CASE("isContended uses line window not integer divide")
+{
+    ULA ula;
+    ula.reset();
+    ula.line = 0;
+    ula.line_tstates = 128;
+    REQUIRE_FALSE(ula.isContended(0x4000));
+    ula.line = 64;
+    ula.line_tstates = 128;
+    REQUIRE(ula.isContended(0x4000));
+    REQUIRE_FALSE(ula.isContended(0x0000));
+    REQUIRE_FALSE(ula.isContended(0x8000));
+    ula.line_tstates = 0;
+    REQUIRE_FALSE(ula.isContended(0x4000));
+    ula.setModel128(true);
+    ula.port7ffd = 0x01;
+    ula.line = 64;
+    ula.line_tstates = 128;
+    REQUIRE(ula.isContended(0xC000));
+    ula.port7ffd = 0x00;
+    REQUIRE_FALSE(ula.isContended(0xC000));
+}
+
 TEST_CASE("key 0 clears bit 0 on port 0xEFFE")
 {
     ULA ula;

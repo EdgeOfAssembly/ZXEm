@@ -49,7 +49,11 @@ public:
      * @param[in] pitch Bytes per destination row (typically SCREEN_WIDTH * 4).
      */
     void renderFrame(uint32_t* pixels, int pitch);
-    bool isContended(uint16_t addr, int tstate);
+    /**
+     * @brief True if this access waits on the ULA (bank 5 / odd 128K banks during pixels).
+     * Uses @c line / @c line_tstates (no divide).
+     */
+    bool isContended(uint16_t addr) const;
 
     void setModel128(bool m) { is128 = m; }
     /** @brief Enable +2A/+3 paging (four ROM banks + uPD765). Implies 128K. */
@@ -57,9 +61,16 @@ public:
     /** @brief Opcode-fetch hook: page TR-DOS ROM in at 0x3D00–0x3DFF. */
     void m1_notify(uint16_t addr);
     /** @brief RAM bank currently mapped at 0xC000 (0 on 48K). */
-    uint8_t paged_bank() const;
+    uint8_t paged_bank() const { return is128 ? static_cast<uint8_t>(port7ffd & 7) : 0; }
     /** @brief +3 ROM index 0..3 from 7FFD/1FFD, or 0/1 on 128K. */
-    int rom_index() const;
+    int rom_index() const
+    {
+        if (plus3)
+        {
+            return ((port1ffd >> 1) & 2) | ((port7ffd >> 4) & 1);
+        }
+        return (is128 && (port7ffd & 0x10)) ? 1 : 0;
+    }
 
     static const int SCREEN_WIDTH = 256;
     static const int SCREEN_HEIGHT = 192;
@@ -83,3 +94,58 @@ public:
     void beeperSet(bool on);
     float currentAudioSample() const;
 };
+
+[[gnu::always_inline]] inline bool ULA::isContended(uint16_t addr) const
+{
+    const bool bank5 = (addr & 0xC000u) == 0x4000u;
+    const bool odd_c000 = is128 && (addr >= 0xC000u) && ((port7ffd & 1u) != 0);
+    if (!bank5 && !odd_c000)
+    {
+        return false;
+    }
+    return static_cast<unsigned>(line - ULA_FIRST_LINE) < 192u
+        && static_cast<unsigned>(line_tstates - (ULA_FIRST_PIXEL - 1)) < 129u;
+}
+
+[[gnu::always_inline]] inline uint8_t ULA::read(uint16_t addr)
+{
+    if (plus3 && (port1ffd & 0x01))
+    {
+        static const int maps[4][4] = {
+            {0, 1, 2, 3},
+            {4, 5, 6, 7},
+            {4, 5, 6, 3},
+            {4, 7, 6, 3}
+        };
+        const int mode = (port1ffd >> 1) & 3;
+        const int slot = addr >> 14;
+        return ram_banks[maps[mode][slot]][addr & 0x3FFF];
+    }
+    if (addr < 0x4000)
+    {
+        if (trdos_paged && trdos_present)
+        {
+            return trdos_rom[addr];
+        }
+        switch (rom_index())
+        {
+            case 1:
+                return rom1[addr];
+            case 2:
+                return rom2[addr];
+            case 3:
+                return rom3[addr];
+            default:
+                return rom[addr];
+        }
+    }
+    if (addr < 0x8000)
+    {
+        return ram_banks[5][addr - 0x4000];
+    }
+    if (addr < 0xC000)
+    {
+        return ram_banks[2][addr - 0x8000];
+    }
+    return ram_banks[paged_bank()][addr - 0xC000];
+}
