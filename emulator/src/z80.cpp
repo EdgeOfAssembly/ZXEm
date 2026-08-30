@@ -6,6 +6,13 @@
 
 Z80::Z80() : ula(nullptr), tstates(0) { reset(); }
 
+int Z80::execute_traced()
+{
+    log_trace("cpu PC=%04X AF=%04X BC=%04X DE=%04X HL=%04X IX=%04X IY=%04X SP=%04X",
+              PC, getAF(), getBC(), getDE(), getHL(), IX, IY, SP);
+    return execute();
+}
+
 void Z80::reset() {
     A = F = B = C = D = E = H = L = 0;
     A_ = F_ = B_ = C_ = D_ = E_ = H_ = L_ = 0;
@@ -286,12 +293,6 @@ int Z80::execute() {
     if (halted) {
         tstates += 4;
         return 4;
-    }
-
-    if (Log::instance().trace_cpu())
-    {
-        log_trace("cpu PC=%04X AF=%04X BC=%04X DE=%04X HL=%04X IX=%04X IY=%04X SP=%04X",
-                  PC, getAF(), getBC(), getDE(), getHL(), IX, IY, SP);
     }
 
     R = (R & 0x80) | ((R + 1) & 0x7F);

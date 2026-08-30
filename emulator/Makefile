@@ -15,7 +15,8 @@ CXXFLAGS_COMMON := -std=gnu++23 -Wall -Wextra -Wpedantic -Wshadow \
 	-fno-omit-frame-pointer -ffunction-sections -fdata-sections \
 	$(SDL_CFLAGS) $(ZIP_CFLAGS) $(Z_CFLAGS) -I src
 
-LDFLAGS_COMMON := $(SDL_LIBS) $(ZIP_LIBS) $(Z_LIBS) -lm -Wl,--gc-sections
+LDFLAGS_COMMON := -Wl,--push-state,--as-needed $(SDL_LIBS) $(ZIP_LIBS) $(Z_LIBS) \
+	-Wl,--pop-state -Wl,--gc-sections -Wl,-z,relro -Wl,-z,now
 
 CXXFLAGS_DEBUG := $(CXXFLAGS_COMMON) -g3 -O0 \
 	-fsanitize=address,undefined -fno-omit-frame-pointer -rdynamic

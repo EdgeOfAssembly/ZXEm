@@ -48,8 +48,8 @@ public:
      */
     bool ear_high() const { return level_; }
 
-    /** @brief True when a pulse stream is loaded. */
-    bool loaded() const { return !edges_.empty(); }
+    /** @brief True when a pulse stream is loaded (no per-call vector check). */
+    bool loaded() const { return loaded_; }
 
 private:
     void add_edge(uint32_t tstates);
@@ -60,4 +60,5 @@ private:
     size_t idx_;
     uint32_t remain_;
     bool level_;
+    bool loaded_;
 };

@@ -10,10 +10,17 @@ Version **0.4**.
 Requires SDL2, libzip, zlib, and g++ (C++23):
 
 ```bash
-make -s -j"$(nproc)"
+make -s -j"$(nproc)"          # debug: -O0 + ASan/UBSan (slow; for bugs)
 make -s test
 make -s verify
+make -s release               # play/ship: -O3 -DNDEBUG, no sanitizers, no -g
 ```
+
+Default `make` is **not** for playing. ASan plus `-O0` makes keys feel sluggish
+because one Spectrum frame can take much more than 20 ms of host time. Use
+`make -s release` then `./zxem GAME`. `--trace-cpu` / `--trace-io` still work
+on the release binary (selected once at startup; the fast path has no per-opcode
+log check).
 
 ## Run
 

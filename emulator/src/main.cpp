@@ -22,6 +22,21 @@
 #include "vfs.h"
 #include "z80.h"
 
+#if defined(__SANITIZE_ADDRESS__)
+extern "C" const char* __lsan_default_suppressions(void)
+{
+    /* SDL audio (Pulse/PipeWire) keeps dbus allocations until process exit. */
+    return
+        "leak:libdbus-\n"
+        "leak:libpulse\n"
+        "leak:libpulsecommon\n"
+        "leak:libsystemd.so\n"
+        "leak:libpipewire-\n"
+        "leak:libglib-2.0.so\n"
+        "leak:libgio-2.0.so\n";
+}
+#endif
+
 static Z80 z80;
 static ULA ula;
 static SDL_Window* window = nullptr;
@@ -104,15 +119,24 @@ static void init_audio()
     }
 }
 
-static void updateAudio()
+/** @brief 3.5 MHz / 44100 Hz ≈ 79 T-states per host sample. */
+static const int T_PER_SAMPLE = 79;
+static int audio_t_accum = 0;
+
+static void updateAudio(int tstates)
 {
-    if (!ula.beeper_changed && !ula.is128)
+    if (tstates <= 0)
     {
         return;
     }
-    ula.beeper_changed = false;
-    const float s = ula.currentAudioSample();
-    pushAudioSample(static_cast<int16_t>(s * 12000.0f));
+    audio_t_accum += tstates;
+    while (audio_t_accum >= T_PER_SAMPLE)
+    {
+        audio_t_accum -= T_PER_SAMPLE;
+        ula.beeper_changed = false;
+        const float s = ula.currentAudioSample();
+        pushAudioSample(static_cast<int16_t>(s * 12000.0f));
+    }
 }
 
 static void handle_joy_button(int button, bool pressed)
@@ -332,7 +356,7 @@ static void print_usage(const char* argv0)
             "      --no-log          Disable RE logging (default: on, stderr)\n"
             "      --log-file PATH   Also write RE log to PATH\n"
             "      --log-level LVL   error|warn|info|debug|trace (default: info)\n"
-            "      --trace-cpu       Log every instruction (default: off)\n"
+            "      --trace-cpu       Log every instruction (startup; default: off)\n"
             "      --trace-io        Log I/O ports (default: off)\n"
             "      --verbose         Same as --log-level debug\n"
             "\n"
@@ -870,6 +894,20 @@ int main(int argc, char* argv[])
     printf("Loaded %s PC=0x%04X SP=0x%04X model=%s\n",
            g_game_path.c_str(), z80.PC, z80.SP, g_model.c_str());
 
+#if defined(__SANITIZE_ADDRESS__)
+    if (!g_headless)
+    {
+        fprintf(stderr,
+                "zxem: debug+ASan build is slow. For play: make -s release && ./zxem GAME\n");
+    }
+#endif
+
+    int (Z80::*cpu_step)() = &Z80::execute;
+    if (Log::instance().trace_cpu())
+    {
+        cpu_step = &Z80::execute_traced;
+    }
+
     const int TSTATES_PER_FRAME = 69888;
     const int TARGET_FRAME_US = 20000;
     uint64_t last_frame_time = SDL_GetPerformanceCounter();
@@ -915,11 +953,11 @@ int main(int argc, char* argv[])
         int tstates_this_frame = 0;
         while (tstates_this_frame < TSTATES_PER_FRAME)
         {
-            const int ts = z80.execute();
+            const int ts = (z80.*cpu_step)();
             ula.step(ts);
             if (!g_headless && !g_no_audio)
             {
-                updateAudio();
+                updateAudio(ts);
             }
             tstates_this_frame += ts;
 

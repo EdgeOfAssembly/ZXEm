@@ -324,21 +324,39 @@ void ULA::ioWrite(uint16_t port, uint8_t val) {
 }
 
 void ULA::step(int cycles) {
-    tape.step(cycles);
-    if (is128) ay.step(cycles);
-    for (int i = 0; i < cycles; i++) {
-        tstates++;
-        frame_tstates++;
-        line_tstates++;
-
-        if (line_tstates >= TSTATES_PER_LINE) {
+    if (cycles <= 0)
+    {
+        return;
+    }
+    if (tape.loaded())
+    {
+        tape.step(cycles);
+    }
+    if (is128)
+    {
+        ay.step(cycles);
+    }
+    /* Advance T-states in line-sized chunks instead of a 1-T loop. */
+    int left = cycles;
+    while (left > 0)
+    {
+        const int room = TSTATES_PER_LINE - line_tstates;
+        const int chunk = (left < room) ? left : room;
+        tstates += chunk;
+        frame_tstates += chunk;
+        line_tstates += chunk;
+        left -= chunk;
+        if (line_tstates >= TSTATES_PER_LINE)
+        {
             line_tstates = 0;
             line++;
-            if (line >= LINES_PER_FRAME) {
+            if (line >= LINES_PER_FRAME)
+            {
                 line = 0;
                 frame_tstates = 0;
                 flash_counter++;
-                if (flash_counter >= 16) {
+                if (flash_counter >= 16)
+                {
                     flash_counter = 0;
                     flash = !flash;
                 }

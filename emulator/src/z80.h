@@ -61,7 +61,16 @@ public:
 
     static bool parity(uint8_t v);
 
+    /**
+     * @brief Fast opcode step (no CPU trace). Selected at startup unless --trace-cpu.
+     * @return Instruction T-states (not a running total).
+     */
     int execute();
+    /**
+     * @brief Same as execute() but logs registers before the opcode (RE trace).
+     * @return Instruction T-states.
+     */
+    int execute_traced();
 
 private:
     int op_ED();

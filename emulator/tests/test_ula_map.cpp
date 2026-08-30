@@ -46,6 +46,22 @@ TEST_CASE("bitmap address differs for scanlines in the same cell")
     REQUIRE(pixels[0] != pixels[ULA::SCREEN_WIDTH]);
 }
 
+TEST_CASE("ULA::step bulk-advances a full line and frame wrap")
+{
+    ULA ula;
+    ula.reset();
+    REQUIRE(ula.line == 0);
+    REQUIRE(ula.line_tstates == 0);
+    ula.step(ULA::TSTATES_PER_LINE);
+    REQUIRE(ula.line == 1);
+    REQUIRE(ula.line_tstates == 0);
+    REQUIRE(ula.tstates == ULA::TSTATES_PER_LINE);
+    ula.step(ULA::TSTATES_PER_LINE * (ULA::LINES_PER_FRAME - 1));
+    REQUIRE(ula.line == 0);
+    REQUIRE(ula.frame_tstates == 0);
+    REQUIRE(ula.tstates == ULA::TSTATES_PER_FRAME);
+}
+
 TEST_CASE("128K 8000 is always bank 2")
 {
     ULA ula;

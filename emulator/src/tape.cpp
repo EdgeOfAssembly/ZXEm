@@ -31,6 +31,7 @@ void TapeDeck::reset()
     idx_ = 0;
     remain_ = 0;
     level_ = true;
+    loaded_ = false;
 }
 
 void TapeDeck::add_edge(uint32_t tstates)
@@ -117,6 +118,7 @@ bool TapeDeck::load_tap(const uint8_t* data, size_t size)
     idx_ = 0;
     remain_ = edges_.empty() ? 0 : edges_[0];
     level_ = true;
+    loaded_ = true;
     log_info("tape EAR: %d TAP blocks, %zu edges", blocks, edges_.size());
     return true;
 }
@@ -300,6 +302,7 @@ bool TapeDeck::load_tzx(const uint8_t* data, size_t size)
     idx_ = 0;
     remain_ = edges_.empty() ? 0 : edges_[0];
     level_ = true;
+    loaded_ = true;
     log_info("tape EAR: %d TZX blocks, %zu edges", blocks, edges_.size());
     return true;
 }
