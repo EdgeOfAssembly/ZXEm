@@ -202,6 +202,7 @@ static bool load_game_spec(const std::string& spec)
 }
 
 static uint8_t g_key_sticky[8][5];
+static uint8_t g_joy_hold[5]; /* Kempston bits 0..4, frames remaining */
 
 static void sticky_press(int row, int bit)
 {
@@ -226,6 +227,52 @@ static void sticky_decay()
             ula.setKey(row, bit, true);
             g_key_sticky[row][bit]--;
         }
+    }
+}
+
+static void joy_hold(int bit)
+{
+    if (bit >= 0 && bit < 5)
+    {
+        g_joy_hold[bit] = 12;
+    }
+}
+
+/** @brief WASD overlay targets (Knight Lore A/Z/X/Q + Kempston). */
+static void sticky_wasd(SDL_Scancode sc)
+{
+    if (g_keymap != "wasd")
+    {
+        return;
+    }
+    switch (sc)
+    {
+        case SDL_SCANCODE_W:
+        case SDL_SCANCODE_UP:
+            sticky_press(1, 0);
+            joy_hold(3);
+            break;
+        case SDL_SCANCODE_A:
+        case SDL_SCANCODE_LEFT:
+            sticky_press(0, 1);
+            joy_hold(1);
+            break;
+        case SDL_SCANCODE_D:
+        case SDL_SCANCODE_RIGHT:
+            sticky_press(0, 2);
+            joy_hold(0);
+            break;
+        case SDL_SCANCODE_S:
+        case SDL_SCANCODE_DOWN:
+            joy_hold(2);
+            break;
+        case SDL_SCANCODE_LCTRL:
+        case SDL_SCANCODE_RCTRL:
+            sticky_press(2, 0);
+            joy_hold(4);
+            break;
+        default:
+            break;
     }
 }
 
@@ -489,25 +536,38 @@ static void apply_spectrum_keys()
         {
             ula.setKey(1, 0, true); /* A = forward */
             joy |= 0x08;
+            joy_hold(3);
         }
         if (ks[SDL_SCANCODE_S] || ks[SDL_SCANCODE_DOWN])
         {
             joy |= 0x04;
+            joy_hold(2);
         }
         if (ks[SDL_SCANCODE_A] || ks[SDL_SCANCODE_LEFT])
         {
             ula.setKey(0, 1, true); /* Z = left */
             joy |= 0x02;
+            joy_hold(1);
         }
         if (ks[SDL_SCANCODE_D] || ks[SDL_SCANCODE_RIGHT])
         {
             ula.setKey(0, 2, true); /* X = right */
             joy |= 0x01;
+            joy_hold(0);
         }
         if (ks[SDL_SCANCODE_LCTRL] || ks[SDL_SCANCODE_RCTRL])
         {
             ula.setKey(2, 0, true); /* Q = jump */
             joy |= 0x10;
+            joy_hold(4);
+        }
+    }
+    for (int b = 0; b < 5; b++)
+    {
+        if (g_joy_hold[b] > 0)
+        {
+            joy = static_cast<uint8_t>(joy | (1u << b));
+            g_joy_hold[b]--;
         }
     }
     ula.setKempston(joy);
@@ -533,6 +593,7 @@ static void pump_input()
                              static_cast<int>(event.key.keysym.scancode),
                              static_cast<int>(event.key.keysym.sym));
                     handle_key(event.key.keysym.sym, true);
+                    sticky_wasd(event.key.keysym.scancode);
                 }
                 break;
             case SDL_KEYUP:
