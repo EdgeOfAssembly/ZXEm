@@ -25,6 +25,8 @@ LDFLAGS_DEBUG := -fsanitize=address,undefined -rdynamic $(LDFLAGS_COMMON)
 CXXFLAGS_OPTIMIZED := -O3 -march=x86-64 -mtune=generic -fno-omit-frame-pointer
 CXXFLAGS_RELEASE := $(CXXFLAGS_COMMON) -DNDEBUG $(CXXFLAGS_OPTIMIZED)
 LDFLAGS_RELEASE := $(LDFLAGS_COMMON)
+CXXFLAGS_PROFILE := $(CXXFLAGS_COMMON) -DNDEBUG $(CXXFLAGS_OPTIMIZED) -g -pg -fno-inline
+LDFLAGS_PROFILE := -pg $(LDFLAGS_COMMON)
 
 CXXFLAGS ?= $(CXXFLAGS_DEBUG)
 LDFLAGS  ?= $(LDFLAGS_DEBUG)
@@ -98,7 +100,7 @@ release:
 
 profile:
 	$(MAKE) -s V=0 clean
-	$(MAKE) $(BUILD_FLAGS) \
-		CXXFLAGS="$(CXXFLAGS_COMMON) -DNDEBUG $(CXXFLAGS_OPTIMIZED) -g -pg -fno-inline" \
-		LDFLAGS="-pg $(LDFLAGS_COMMON)" all
+	$(MAKE) $(BUILD_FLAGS) CXXFLAGS="$(CXXFLAGS_PROFILE)" \
+		LDFLAGS="$(LDFLAGS_PROFILE)" all
 	@echo "Profile binary built: $(TARGET)"
+	@echo "Run a title, then: gprof -b ./$(TARGET) gmon.out > profile.txt"

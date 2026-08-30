@@ -1053,8 +1053,9 @@ int main(int argc, char* argv[])
             SDL_Quit();
             return 1;
         }
-        /* Env SDL_RENDER_VSYNC=1 wins over SetHint; a failed swap can block ~1 s (1 fps). */
+        /* Env SDL_RENDER_VSYNC=1 / SCALE_QUALITY=best win over SetHint unless OVERRIDE. */
         SDL_SetHintWithPriority(SDL_HINT_RENDER_VSYNC, "0", SDL_HINT_OVERRIDE);
+        SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, "0", SDL_HINT_OVERRIDE);
         SDL_SetHintWithPriority("SDL_RENDER_DRIVER", "opengl", SDL_HINT_DEFAULT);
         renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
         if (!renderer)
@@ -1074,6 +1075,11 @@ int main(int argc, char* argv[])
             {
                 log_warn("SDL is using the software renderer");
             }
+        }
+        /* Hint may not reach the GL context; 60 Hz vsync on a 50 Hz emu feels sluggish. */
+        if (SDL_GL_SetSwapInterval(0) != 0)
+        {
+            log_debug("SDL_GL_SetSwapInterval(0): %s", SDL_GetError());
         }
         texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
                                     SDL_TEXTUREACCESS_STREAMING,
@@ -1266,8 +1272,7 @@ int main(int argc, char* argv[])
         frame_count++;
         if (frame_count % 50 == 0)
         {
-            log_info("frame %d PC=0x%04X (~50 frames; if this is ~1s wall, fps is ok)",
-                     frame_count, z80.PC);
+            log_debug("frame %d PC=0x%04X", frame_count, z80.PC);
         }
 
         if (g_max_frames > 0 && frame_count >= g_max_frames)

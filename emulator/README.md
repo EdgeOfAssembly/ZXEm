@@ -22,6 +22,12 @@ because one Spectrum frame can take much more than 20 ms of host time. Use
 on the release binary (selected once at startup; the fast path has no per-opcode
 log check).
 
+The 48K/128K ULA is **50 Hz PAL** (69 888 T-states/frame). ZXEm runs the machine
+at that rate even on a 60 Hz laptop so games and AY stay in time; the display
+may judder slightly. Do not clock the Z80 at 60 Hz (that is 20% fast). After
+debug looks right: `make -s profile`, play/headless a title, then
+`gprof -b ./zxem gmon.out`. Then `make -s release`.
+
 Click the ZXEm window so it has keyboard focus. Number-row and keypad `0`–`9`
 both map to the Spectrum keys (Knight Lore: **1** keyboard, then **0** start).
 
