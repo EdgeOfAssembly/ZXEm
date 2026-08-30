@@ -600,6 +600,7 @@ bool load_tap(const uint8_t* data, size_t size, Z80& z80, ULA& ula)
         return false;
     }
     finish_tape(z80, code_start, have_code);
+    ula.tape.load_tap(data, size);
     return true;
 }
 
@@ -836,6 +837,7 @@ bool load_tzx(const uint8_t* data, size_t size, Z80& z80, ULA& ula)
         return false;
     }
     finish_tape(z80, code_start, have_code);
+    ula.tape.load_tzx(data, size);
     return true;
 }
 
@@ -859,7 +861,17 @@ bool load_rom_blob(const uint8_t* data, size_t size, ULA& ula)
         log_info("ROM 32K (128K pair) loaded");
         return true;
     }
-    log_error("ROM: expected 16384 or 32768 bytes, got %zu", size);
+    if (size == 65536)
+    {
+        memcpy(ula.rom, data, 16384);
+        memcpy(ula.rom1, data + 16384, 16384);
+        memcpy(ula.rom2, data + 32768, 16384);
+        memcpy(ula.rom3, data + 49152, 16384);
+        ula.setPlus3(true);
+        log_info("ROM 64K (+3 four banks) loaded");
+        return true;
+    }
+    log_error("ROM: expected 16384, 32768 or 65536 bytes, got %zu", size);
     return false;
 }
 
@@ -909,7 +921,7 @@ bool load_rom_from_dir(const char* dir, ULA& ula)
         {
             continue;
         }
-        if (st.st_size == 16384 || st.st_size == 32768)
+        if (st.st_size == 16384 || st.st_size == 32768 || st.st_size == 65536)
         {
             closedir(d);
             return load_rom_file(path, ula);
@@ -917,4 +929,93 @@ bool load_rom_from_dir(const char* dir, ULA& ula)
     }
     closedir(d);
     return false;
+}
+
+bool load_plus3_roms_from_dir(const char* dir, ULA& ula)
+{
+    if (dir == nullptr)
+    {
+        return false;
+    }
+    uint8_t buf[65536];
+    for (int i = 0; i < 4; i++)
+    {
+        char path[512];
+        snprintf(path, sizeof(path), "%s/plus3-%d.rom", dir, i);
+        FILE* f = fopen(path, "rb");
+        if (f == nullptr)
+        {
+            return false;
+        }
+        const size_t n = fread(buf + static_cast<size_t>(i) * 16384, 1, 16384, f);
+        fclose(f);
+        f = nullptr;
+        if (n != 16384)
+        {
+            return false;
+        }
+    }
+    return load_rom_blob(buf, 65536, ula);
+}
+
+bool load_trdos_rom_file(const char* path, ULA& ula)
+{
+    if (path == nullptr)
+    {
+        return false;
+    }
+    VfsBlob blob;
+    if (!vfs_read(path, blob))
+    {
+        return false;
+    }
+    if (blob.data.size() != 16384)
+    {
+        log_error("TR-DOS ROM: expected 16384 bytes at %s (got %zu)", path, blob.data.size());
+        return false;
+    }
+    memcpy(ula.trdos_rom, blob.data.data(), 16384);
+    ula.trdos_present = true;
+    log_info("TR-DOS ROM loaded from %s", path);
+    return true;
+}
+
+bool load_system_roms(ULA& ula, const char* model)
+{
+    const char* dir = "/usr/share/fuse";
+    const char* m = (model != nullptr) ? model : "spectrum48";
+    if (strcmp(m, "plus3") == 0 || strcmp(m, "spectrum+3") == 0)
+    {
+        return load_plus3_roms_from_dir(dir, ula);
+    }
+    if (strcmp(m, "spectrum128") == 0)
+    {
+        uint8_t buf[32768];
+        FILE* f0 = fopen("/usr/share/fuse/128-0.rom", "rb");
+        FILE* f1 = fopen("/usr/share/fuse/128-1.rom", "rb");
+        if (f0 == nullptr || f1 == nullptr)
+        {
+            if (f0 != nullptr)
+            {
+                fclose(f0);
+            }
+            if (f1 != nullptr)
+            {
+                fclose(f1);
+            }
+            return load_rom_from_dir(dir, ula);
+        }
+        const size_t n0 = fread(buf, 1, 16384, f0);
+        const size_t n1 = fread(buf + 16384, 1, 16384, f1);
+        fclose(f0);
+        f0 = nullptr;
+        fclose(f1);
+        f1 = nullptr;
+        if (n0 != 16384 || n1 != 16384)
+        {
+            return false;
+        }
+        return load_rom_blob(buf, 32768, ula);
+    }
+    return load_rom_from_dir(dir, ula);
 }

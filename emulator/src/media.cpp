@@ -5,6 +5,7 @@
 
 #include "media.h"
 #include "cursor.h"
+#include "disk.h"
 #include "log.h"
 #include "snapshot.h"
 
@@ -433,47 +434,9 @@ bool load_trd(const uint8_t* data, size_t size, Z80& z80, ULA& ula)
     }
     log_info("TRD catalog files=%zu size=%zu", files.size(), size);
     ula.setModel128(true);
+    disk_attach_trd(ula, data, size);
     load_trdos_files(files, z80, ula);
     return !files.empty();
-}
-
-bool load_dsk(const uint8_t* data, size_t size, Z80& z80, ULA& ula)
-{
-    (void)z80;
-    (void)ula;
-    if (size < 256)
-    {
-        log_error("DSK: too small");
-        return false;
-    }
-    const bool ext = memcmp(data, "EXTENDED", 8) == 0;
-    const bool std = memcmp(data, "MV - CPC", 8) == 0;
-    if (!ext && !std)
-    {
-        log_error("DSK: not a CPC/+3 disk image");
-        return false;
-    }
-    log_warn("DSK: +3 FDC not yet emulated (%s, %zu bytes) — image identified, load skipped",
-             ext ? "EDSK" : "standard", size);
-    return false;
-}
-
-bool load_mgt(const uint8_t* data, size_t size, Z80& z80, ULA& ula)
-{
-    (void)data;
-    (void)z80;
-    (void)ula;
-    log_warn("MGT: DISCiPLE/+D image recognised (%zu bytes) but G+DOS is not emulated yet", size);
-    return false;
-}
-
-bool load_mdr(const uint8_t* data, size_t size, Z80& z80, ULA& ula)
-{
-    (void)data;
-    (void)z80;
-    (void)ula;
-    log_warn("MDR: Microdrive cartridge recognised (%zu bytes) but Interface 1 is not emulated yet", size);
-    return false;
 }
 
 bool load_dck(const uint8_t* data, size_t size, Z80& z80, ULA& ula)
@@ -517,23 +480,7 @@ bool load_dck(const uint8_t* data, size_t size, Z80& z80, ULA& ula)
     return true;
 }
 
-bool load_fdi(const uint8_t* data, size_t size, Z80& z80, ULA& ula)
-{
-    (void)data;
-    (void)z80;
-    (void)ula;
-    log_warn("FDI: image recognised (%zu bytes); full Beta Disk FDC not emulated — try .scl/.trd", size);
-    return false;
-}
 
-bool load_udi(const uint8_t* data, size_t size, Z80& z80, ULA& ula)
-{
-    (void)data;
-    (void)z80;
-    (void)ula;
-    log_warn("UDI: image recognised (%zu bytes); full Beta Disk FDC not emulated — try .scl/.trd", size);
-    return false;
-}
 
 bool load_csw(const uint8_t* data, size_t size, Z80& z80, ULA& ula)
 {
@@ -690,15 +637,15 @@ bool media_load(const VfsBlob& blob, Z80& z80, ULA& ula)
     }
     if (fmt == "dsk")
     {
-        return load_dsk(p, n, z80, ula);
+        return disk_load_dsk(p, n, z80, ula);
     }
     if (fmt == "mgt")
     {
-        return load_mgt(p, n, z80, ula);
+        return disk_load_mgt(p, n, z80, ula);
     }
     if (fmt == "mdr")
     {
-        return load_mdr(p, n, z80, ula);
+        return disk_load_mdr(p, n, z80, ula);
     }
     if (fmt == "dck")
     {
@@ -706,11 +653,11 @@ bool media_load(const VfsBlob& blob, Z80& z80, ULA& ula)
     }
     if (fmt == "fdi")
     {
-        return load_fdi(p, n, z80, ula);
+        return disk_load_fdi(p, n, z80, ula);
     }
     if (fmt == "udi")
     {
-        return load_udi(p, n, z80, ula);
+        return disk_load_udi(p, n, z80, ula);
     }
     if (fmt == "csw")
     {
@@ -733,9 +680,17 @@ bool media_load(const VfsBlob& blob, Z80& z80, ULA& ula)
         log_error("POK is a cheat file — load a game first, then --pok FILE");
         return false;
     }
-    if (fmt == "d80" || fmt == "d40" || fmt == "ipf" || fmt == "spg")
+    if (fmt == "d80" || fmt == "d40")
     {
-        log_warn("%s: recognised but not loaded yet (%zu bytes)", fmt.c_str(), n);
+        return disk_load_d80(p, n, z80, ula);
+    }
+    if (fmt == "spg")
+    {
+        return disk_load_spg(p, n, z80, ula);
+    }
+    if (fmt == "ipf")
+    {
+        log_warn("IPF: CAPS flux image recognised (%zu bytes) — not loaded", n);
         return false;
     }
     log_error("unhandled format %s", fmt.c_str());

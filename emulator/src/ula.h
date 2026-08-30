@@ -2,11 +2,16 @@
 #include <cstdint>
 #include <cstring>
 #include "ay.h"
+#include "disk.h"
+#include "tape.h"
 
 class ULA {
 public:
     uint8_t rom[16384];
     uint8_t rom1[16384];
+    uint8_t rom2[16384];
+    uint8_t rom3[16384];
+    uint8_t trdos_rom[16384];
     uint8_t ram[49152];
     uint8_t ram_banks[8][16384];
     uint8_t border;
@@ -19,9 +24,16 @@ public:
     int flash_counter;
 
     bool is128;
+    bool plus3;
+    bool trdos_present;
+    bool trdos_paged;
     uint8_t port7ffd;
     uint8_t port1ffd;
     AY38912 ay;
+    DiskMap edsk;
+    Upd765 fdc;
+    Vg93 beta;
+    TapeDeck tape;
 
     ULA();
     void reset();
@@ -35,8 +47,14 @@ public:
     bool isContended(uint16_t addr, int tstate);
 
     void setModel128(bool m) { is128 = m; }
+    /** @brief Enable +2A/+3 paging (four ROM banks + uPD765). Implies 128K. */
+    void setPlus3(bool on);
+    /** @brief Opcode-fetch hook: page TR-DOS ROM in at 0x3D00–0x3DFF. */
+    void m1_notify(uint16_t addr);
     /** @brief RAM bank currently mapped at 0xC000 (0 on 48K). */
     uint8_t paged_bank() const;
+    /** @brief +3 ROM index 0..3 from 7FFD/1FFD, or 0/1 on 128K. */
+    int rom_index() const;
 
     static const int SCREEN_WIDTH = 256;
     static const int SCREEN_HEIGHT = 192;

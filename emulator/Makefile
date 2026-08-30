@@ -32,9 +32,9 @@ SRCDIR := src
 OBJDIR := obj
 TARGET := zxem
 
-LIB_SRCS := $(SRCDIR)/ay.cpp $(SRCDIR)/config.cpp $(SRCDIR)/log.cpp \
-	$(SRCDIR)/media.cpp $(SRCDIR)/snapshot.cpp $(SRCDIR)/ula.cpp \
-	$(SRCDIR)/vfs.cpp $(SRCDIR)/z80.cpp
+LIB_SRCS := $(SRCDIR)/ay.cpp $(SRCDIR)/config.cpp $(SRCDIR)/disk.cpp \
+	$(SRCDIR)/log.cpp $(SRCDIR)/media.cpp $(SRCDIR)/snapshot.cpp \
+	$(SRCDIR)/tape.cpp $(SRCDIR)/ula.cpp $(SRCDIR)/vfs.cpp $(SRCDIR)/z80.cpp
 MAIN_SRCS := $(SRCDIR)/main.cpp
 SRCS := $(LIB_SRCS) $(MAIN_SRCS)
 OBJS := $(patsubst $(SRCDIR)/%.cpp,$(OBJDIR)/%.o,$(SRCS))
@@ -51,7 +51,7 @@ all: $(TARGET)
 $(TARGET): $(OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 
-$(OBJDIR)/%.o: $(SRCDIR)/%.cpp | $(OBJDIR)
+$(OBJDIR)/%.o: $(SRCDIR)/%.cpp $(SRCDIR)/*.h | $(OBJDIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 $(OBJDIR):
@@ -82,6 +82,8 @@ verify: test
 	@if command -v $(HOME)/.local/bin/cbmc >/dev/null 2>&1; then \
 	  $(HOME)/.local/bin/cbmc formal/tap_block.c --bounds-check --pointer-check \
 	    --unwind 8 --unwinding-assertions; \
+	  $(HOME)/.local/bin/cbmc formal/edsk_track.c --bounds-check --pointer-check \
+	    --unwind 4 --unwinding-assertions; \
 	else \
 	  echo "formal: cbmc not on PATH — skipped"; \
 	fi

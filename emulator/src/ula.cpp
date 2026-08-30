@@ -4,7 +4,8 @@
 
 ULA::ULA() : border(0), beeper(false), tstates(0), frame_tstates(0), line(0), line_tstates(0),
              flash(false), flash_counter(0),
-             is128(false), port7ffd(0), port1ffd(0),
+             is128(false), plus3(false), trdos_present(false), trdos_paged(false),
+             port7ffd(0), port1ffd(0),
              kempston(0),
              beeper_transition_tstates(0), last_beeper_state(0), beeper_state(false), beeper_changed(false) {
     reset();
@@ -13,6 +14,8 @@ ULA::ULA() : border(0), beeper(false), tstates(0), frame_tstates(0), line(0), li
 void ULA::resetToSyntheticROM() {
     memset(rom, 0, sizeof(rom));
     memset(rom1, 0, sizeof(rom1));
+    memset(rom2, 0, sizeof(rom2));
+    memset(rom3, 0, sizeof(rom3));
     rom[0x0000] = 0xF3;
     rom[0x0001] = 0xC3;
     rom[0x0002] = 0x03;
@@ -20,6 +23,8 @@ void ULA::resetToSyntheticROM() {
     rom[0x0038] = 0xFB;
     rom[0x0039] = 0xC9;
     memcpy(rom1, rom, 16384);
+    memcpy(rom2, rom, 16384);
+    memcpy(rom3, rom, 16384);
 }
 
 void ULA::reset() {
@@ -41,8 +46,48 @@ void ULA::reset() {
     beeper_changed = false;
     port7ffd = 0;
     port1ffd = 0;
+    plus3 = false;
+    trdos_paged = false;
     ay.reset();
+    fdc.reset();
+    fdc.disk = &edsk;
+    beta.reset();
+    tape.reset();
     resetToSyntheticROM();
+}
+
+void ULA::setPlus3(bool on)
+{
+    plus3 = on;
+    if (on)
+    {
+        is128 = true;
+    }
+}
+
+void ULA::m1_notify(uint16_t addr)
+{
+    if (!trdos_present)
+    {
+        return;
+    }
+    if (addr >= 0x3D00 && addr <= 0x3DFF)
+    {
+        trdos_paged = true;
+    }
+    else if (addr >= 0x4000)
+    {
+        trdos_paged = false;
+    }
+}
+
+int ULA::rom_index() const
+{
+    if (plus3)
+    {
+        return ((port1ffd >> 1) & 2) | ((port7ffd >> 4) & 1);
+    }
+    return (is128 && (port7ffd & 0x10)) ? 1 : 0;
 }
 
 uint8_t ULA::paged_bank() const
@@ -51,9 +96,34 @@ uint8_t ULA::paged_bank() const
 }
 
 uint8_t ULA::read(uint16_t addr) {
+    if (plus3 && (port1ffd & 0x01))
+    {
+        static const int maps[4][4] = {
+            {0, 1, 2, 3},
+            {4, 5, 6, 7},
+            {4, 5, 6, 3},
+            {4, 7, 6, 3}
+        };
+        const int mode = (port1ffd >> 1) & 3;
+        const int slot = addr >> 14;
+        return ram_banks[maps[mode][slot]][addr & 0x3FFF];
+    }
     if (addr < 0x4000) {
-        if (is128 && (port7ffd & 0x10)) return rom1[addr];
-        return rom[addr];
+        if (trdos_paged && trdos_present)
+        {
+            return trdos_rom[addr];
+        }
+        switch (rom_index())
+        {
+            case 1:
+                return rom1[addr];
+            case 2:
+                return rom2[addr];
+            case 3:
+                return rom3[addr];
+            default:
+                return rom[addr];
+        }
     }
     /* 48K and 128K share the same CPU map: 5 / 2 / paged. */
     if (addr < 0x8000) {
@@ -66,6 +136,23 @@ uint8_t ULA::read(uint16_t addr) {
 }
 
 void ULA::write(uint16_t addr, uint8_t val) {
+    if (plus3 && (port1ffd & 0x01))
+    {
+        static const int maps[4][4] = {
+            {0, 1, 2, 3},
+            {4, 5, 6, 7},
+            {4, 5, 6, 3},
+            {4, 7, 6, 3}
+        };
+        const int mode = (port1ffd >> 1) & 3;
+        const int slot = addr >> 14;
+        ram_banks[maps[mode][slot]][addr & 0x3FFF] = val;
+        if (addr >= 0x4000)
+        {
+            ram[addr - 0x4000] = val;
+        }
+        return;
+    }
     if (addr < 0x4000) return;
     if (addr < 0x8000) {
         ram_banks[5][addr - 0x4000] = val;
@@ -83,6 +170,40 @@ void ULA::write(uint16_t addr, uint8_t val) {
 
 uint8_t ULA::ioRead(uint16_t port) {
     uint8_t p = (uint8_t)(port & 0xFF);
+    if (plus3)
+    {
+        if ((port & 0xF002) == 0x2000)
+        {
+            return fdc.read_msr();
+        }
+        if ((port & 0xF002) == 0x3000)
+        {
+            return fdc.read_data();
+        }
+    }
+    if (trdos_paged && trdos_present)
+    {
+        if (p == 0x1F)
+        {
+            return beta.read_status();
+        }
+        if (p == 0x3F)
+        {
+            return beta.read_track();
+        }
+        if (p == 0x5F)
+        {
+            return beta.read_sector();
+        }
+        if (p == 0x7F)
+        {
+            return beta.read_data();
+        }
+        if (p == 0xFF)
+        {
+            return beta.read_system();
+        }
+    }
     if (p == 0x1F) return kempston;
     /* AY register read: A15=1 A14=1 A1=0 (0xFFFD). */
     if (is128 && (port & 0xC002) == 0xC000) {
@@ -99,6 +220,10 @@ uint8_t ULA::ioRead(uint16_t port) {
             if (!(addr & (1 << i))) {
                 result &= keyboard[i];
             }
+        }
+        if (!tape.ear_high())
+        {
+            result = static_cast<uint8_t>(result & ~0x40);
         }
         return result;
     }
@@ -163,6 +288,33 @@ void ULA::ioWrite(uint16_t port, uint8_t val) {
         {
             port1ffd = val;
         }
+        if (plus3 && (port & 0xF002) == 0x3000)
+        {
+            fdc.write_data(val);
+        }
+    }
+    if (trdos_paged && trdos_present)
+    {
+        if (p == 0x1F)
+        {
+            beta.write_command(val);
+        }
+        else if (p == 0x3F)
+        {
+            beta.write_track(val);
+        }
+        else if (p == 0x5F)
+        {
+            beta.write_sector(val);
+        }
+        else if (p == 0x7F)
+        {
+            beta.write_data(val);
+        }
+        else if (p == 0xFF)
+        {
+            beta.write_system(val);
+        }
     }
     if (Log::instance().trace_io() && (p & 0x01) == 0)
     {
@@ -172,6 +324,7 @@ void ULA::ioWrite(uint16_t port, uint8_t val) {
 }
 
 void ULA::step(int cycles) {
+    tape.step(cycles);
     if (is128) ay.step(cycles);
     for (int i = 0; i < cycles; i++) {
         tstates++;

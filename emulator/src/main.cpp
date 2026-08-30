@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <sys/stat.h>
 #include <vector>
 
 #include "ay.h"
@@ -35,8 +36,11 @@ static int g_scale = 3;
 static std::string g_game_path;
 static std::string g_rom_dir = "rom";
 static std::string g_rom_path;
+static std::string g_trdos_rom_path;
+static std::string g_plus3_rom_path;
 static std::string g_config_path = "config.ini";
 static std::string g_model = "spectrum48";
+static bool g_no_system_rom = false;
 static std::string g_member;
 static std::string g_pok_path;
 static std::string g_log_file;
@@ -314,9 +318,12 @@ static void print_usage(const char* argv0)
             "  -v, --version         Show version and exit\n"
             "      --list            List playable members to stdout\n"
             "      --member NAME     Load this zip member (substring match OK)\n"
-            "      --model MODEL     spectrum48 (default) or spectrum128\n"
-            "      --rom FILE        Load a 16K/32K ROM image\n"
+            "      --model MODEL     spectrum48 (default), spectrum128, or plus3\n"
+            "      --rom FILE        Load a 16K/32K/64K ROM image\n"
             "      --rom-dir DIR     Search DIR for a ROM (default: ./rom)\n"
+            "      --no-system-rom   Do not search /usr/share/fuse (default: search)\n"
+            "      --trdos-rom FILE  16K TR-DOS ROM (Beta Disk paging)\n"
+            "      --plus3-rom FILE  64K +3 ROM, or a directory of plus3-0..3.rom\n"
             "      --config FILE     INI config (default: ./config.ini)\n"
             "      --pok FILE        Apply POK cheats after load\n"
             "      --headless        No SDL window/audio/input\n"
@@ -551,9 +558,27 @@ int main(int argc, char* argv[])
                 saw_config_flag = true;
             }
         }
+        else if (strcmp(a, "--no-system-rom") == 0)
+        {
+            g_no_system_rom = true;
+        }
         else if (strncmp(a, "--rom-dir", 9) == 0)
         {
             if (!take_value(i, argc, argv, "--rom-dir", g_rom_dir))
+            {
+                return 1;
+            }
+        }
+        else if (strncmp(a, "--trdos-rom", 11) == 0)
+        {
+            if (!take_value(i, argc, argv, "--trdos-rom", g_trdos_rom_path))
+            {
+                return 1;
+            }
+        }
+        else if (strncmp(a, "--plus3-rom", 11) == 0)
+        {
+            if (!take_value(i, argc, argv, "--plus3-rom", g_plus3_rom_path))
             {
                 return 1;
             }
@@ -700,9 +725,14 @@ int main(int argc, char* argv[])
         g_model = "spectrum128";
         ula.setModel128(true);
     }
+    else if (m == "plus3" || m == "spectrum+3" || m == "+3" || m == "spectrumplus3")
+    {
+        g_model = "plus3";
+        ula.setPlus3(true);
+    }
     else
     {
-        fprintf(stderr, "Error: unsupported model '%s'. Supported: spectrum48, spectrum128\n",
+        fprintf(stderr, "Error: unsupported model '%s'. Supported: spectrum48, spectrum128, plus3\n",
                 g_model.c_str());
         return 1;
     }
@@ -777,14 +807,55 @@ int main(int argc, char* argv[])
             log_warn("failed to load ROM %s", g_rom_path.c_str());
         }
     }
+    if (!rom_loaded && !g_plus3_rom_path.empty())
+    {
+        rom_loaded = load_rom_file(g_plus3_rom_path.c_str(), ula);
+        if (!rom_loaded)
+        {
+            rom_loaded = load_plus3_roms_from_dir(g_plus3_rom_path.c_str(), ula);
+        }
+        if (!rom_loaded)
+        {
+            log_warn("failed to load +3 ROM %s", g_plus3_rom_path.c_str());
+        }
+    }
+    if (!rom_loaded && g_model == "plus3")
+    {
+        rom_loaded = load_plus3_roms_from_dir(g_rom_dir.c_str(), ula);
+    }
     if (!rom_loaded)
     {
         rom_loaded = load_rom_from_dir(g_rom_dir.c_str(), ula);
+    }
+    if (!rom_loaded && !g_no_system_rom)
+    {
+        rom_loaded = load_system_roms(ula, g_model.c_str());
+        if (rom_loaded)
+        {
+            log_info("loaded system ROM for model %s", g_model.c_str());
+        }
     }
     if (!rom_loaded)
     {
         ula.resetToSyntheticROM();
         log_info("no ROM found: using synthetic ROM");
+    }
+    if (!g_trdos_rom_path.empty())
+    {
+        if (!load_trdos_rom_file(g_trdos_rom_path.c_str(), ula))
+        {
+            log_warn("failed to load TR-DOS ROM %s", g_trdos_rom_path.c_str());
+        }
+    }
+    else
+    {
+        char trp[512];
+        snprintf(trp, sizeof(trp), "%s/trdos.rom", g_rom_dir.c_str());
+        struct stat st{};
+        if (stat(trp, &st) == 0 && S_ISREG(st.st_mode))
+        {
+            load_trdos_rom_file(trp, ula);
+        }
     }
 
     if (!load_game_spec(g_game_path))

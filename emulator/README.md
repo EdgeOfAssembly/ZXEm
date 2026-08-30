@@ -3,7 +3,7 @@
 SDL2 ZX Spectrum 48K/128K emulator. Loads the World of Spectrum-style
 collection from the filesystem **or from a zip archive in-place** (no extract).
 
-Version **0.3**.
+Version **0.4**.
 
 ## Build
 
@@ -22,7 +22,7 @@ zxem [options] [input…]
 ```
 
 No arguments prints usage (same as `-h` / `--help`). `-v` / `--version`
-prints `zxem 0.3`. Options and inputs may be interleaved.
+prints `zxem 0.4`. Options and inputs may be interleaved.
 
 ```bash
 ./zxem /path/to/game.z80
@@ -39,12 +39,15 @@ prints `zxem 0.3`. Options and inputs may be interleaved.
 | Flag | Default | Meaning |
 |------|---------|---------|
 | `-h`, `--help` | | Usage |
-| `-v`, `--version` | | `zxem 0.3` (never verbose) |
+| `-v`, `--version` | | `zxem 0.4` (never verbose) |
 | `--list` | off | List playable files in a dir/zip to stdout |
 | `--member NAME` | | Substring match inside a zip (prefers snapshots) |
-| `--model MODEL` | spectrum48 | `spectrum48` or `spectrum128` |
-| `--rom FILE` | synthetic | 16K/32K ROM image |
+| `--model MODEL` | spectrum48 | `spectrum48`, `spectrum128`, or `plus3` |
+| `--rom FILE` | synthetic | 16K/32K/64K ROM image |
 | `--rom-dir DIR` | `./rom` | Search for a ROM |
+| `--no-system-rom` | search on | Skip `/usr/share/fuse` |
+| `--trdos-rom FILE` | off | 16K TR-DOS ROM (Beta Disk) |
+| `--plus3-rom FILE` | off | 64K +3 ROM or dir of `plus3-0..3.rom` |
 | `--config FILE` | `./config.ini` | INI overrides |
 | `--pok FILE` | | Apply POK cheats after load |
 | `--headless` | off | No SDL window |
@@ -61,16 +64,19 @@ A zip or directory without `--member` lists playable images on **stdout**.
 
 ### Formats
 
-Loaded: `.z80` `.sna` `.szx` `.sp` `.slt` `.tap` `.tzx` `.scl` `.trd` `.rom` `.dck` `.pok`  
-Recognised (needs more hardware): `.dsk` `.mgt` `.mdr` `.fdi` `.udi` `.csw` `.d80` `.d40` `.ipf` `.spg`  
+Loaded: `.z80` `.sna` `.szx` `.sp` `.slt` `.tap` `.tzx` `.scl` `.trd` `.rom` `.dck` `.pok` `.dsk` `.mgt` `.mdr` `.fdi` `.d80` `.d40` `.spg` (unpacked)  
+Recognised but not loaded: `.ipf` (CAPS flux), `.csw` (use TAP/TZX), packed `.spg`, compressed `.udi`  
 Archives: `.zip` via libzip (STORE or deflate) — **never extracted to disk**.
 
 `/mnt/Games.zip` is the 1.7 GiB STORE archive of `/mnt/games`.
 
 ### Tape / disk fast-load
 
-TAP/TZX inject CODE blocks and jump to the last CODE start. SCL/TRD inject
-TR-DOS CODE files. BASIC-only loaders still need a real Spectrum ROM.
+TAP/TZX inject CODE blocks and jump to the last CODE start, and also feed
+ULA EAR (port FE bit 6) so a real 48K ROM can `LOAD ""`. SCL/TRD inject
+TR-DOS CODE files and attach the disk to VG93 if `--trdos-rom` is present.
+`.dsk` parses EDSK, injects PLUS3DOS CODE, and mounts sectors on a uPD765
+subset (`--model plus3` / `--plus3-rom`). `.mgt` injects +D CODE/snapshots.
 
 ### 128K
 

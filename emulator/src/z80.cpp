@@ -296,6 +296,11 @@ int Z80::execute() {
 
     R = (R & 0x80) | ((R + 1) & 0x7F);
 
+    if (ula != nullptr)
+    {
+        ula->m1_notify(PC);
+    }
+
     uint8_t op = fetch8();
     int base_t = 4;
 

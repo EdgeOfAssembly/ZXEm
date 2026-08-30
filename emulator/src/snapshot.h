@@ -16,6 +16,9 @@ bool load_tzx(const uint8_t* data, size_t size, Z80& z80, ULA& ula);
 bool load_rom_blob(const uint8_t* data, size_t size, ULA& ula);
 bool load_rom_file(const char* path, ULA& ula);
 bool load_rom_from_dir(const char* dir, ULA& ula);
+bool load_plus3_roms_from_dir(const char* dir, ULA& ula);
+bool load_trdos_rom_file(const char* path, ULA& ula);
+bool load_system_roms(ULA& ula, const char* model);
 bool save_z80(const char* path, const Z80& z80, const ULA& ula);
 
 /**

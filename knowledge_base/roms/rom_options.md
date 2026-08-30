@@ -35,7 +35,7 @@ For later models you need additional ROM banks and ULA features:
 
 - 128K has two 16KB ROM banks and an AY-3-8912 sound chip.
 - +2A/+3 have four ROM banks and disk/tape interfaces.
-- This emulator currently emulates only the 48K ULA and has no AY chip, so 128K games will not work without significant extra work.
+- 128K paging and AY-3-8912 are implemented. +3 needs four ROM banks (`--plus3-rom` or Fuse `plus3-0..3.rom`) plus the uPD765 subset.
 
 ## Authenticity checklist
 

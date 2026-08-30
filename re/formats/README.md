@@ -17,11 +17,15 @@ Index of era formats the emulator understands. Dual-write with pmem
 | POK | cheat | `--pok` | N/M/Z/Y trainer |
 | ROM | cart/ROM | yes | 16K or 32K |
 | DCK | Timex dock | yes | 8K banks |
-| DSK | +3 disk | detect | Needs +3 FDC |
-| MGT | +D disk | detect | Needs G+DOS |
-| MDR | microdrive | detect | Needs IF1 |
-| FDI/UDI | Beta disk | detect | Use SCL/TRD |
+| DSK | +3 disk | yes | EDSK parse; PLUS3DOS CODE inject; uPD765 READ DATA |
+| MGT | +D disk | yes | Directory CODE / 48K snapshot inject |
+| MDR | microdrive | yes | Record concat + tape-header CODE inject |
+| FDI | Beta disk | yes | 256-byte sectors → TR-DOS catalog inject |
+| UDI | Beta disk | partial | Uncompressed TR-DOS catalog only |
+| D80/D40 | Didaktik | yes | TR-DOS catalog or MGT-like dirents |
+| SPG | snapshot | yes | Unpacked pages; MLZ packed not loaded |
 | CSW | tape pulses | detect | Use TAP/TZX |
+| IPF | flux | detect | CAPS — not loaded |
 | ZIP | archive | in-place | libzip; `zip#member` — no extract |
 
 Collection: `/mnt/games` (extracted) and `/mnt/Games.zip` (STORE, 1.7G, 82729 files).
