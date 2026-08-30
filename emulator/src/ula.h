@@ -1,11 +1,14 @@
 #pragma once
 #include <cstdint>
 #include <cstring>
+#include "ay.h"
 
 class ULA {
 public:
     uint8_t rom[16384];
+    uint8_t rom1[16384];
     uint8_t ram[49152];
+    uint8_t ram_banks[8][16384];
     uint8_t border;
     bool beeper;
     int tstates;
@@ -14,6 +17,11 @@ public:
     int line_tstates;
     bool flash;
     int flash_counter;
+
+    bool is128;
+    uint8_t port7ffd;
+    uint8_t port1ffd;
+    AY38912 ay;
 
     ULA();
     void reset();
@@ -25,6 +33,10 @@ public:
     void step(int cycles);
     void renderFrame(uint32_t* pixels, int pitch);
     bool isContended(uint16_t addr, int tstate);
+
+    void setModel128(bool m) { is128 = m; }
+    /** @brief RAM bank currently mapped at 0xC000 (0 on 48K). */
+    uint8_t paged_bank() const;
 
     static const int SCREEN_WIDTH = 256;
     static const int SCREEN_HEIGHT = 192;
@@ -41,7 +53,6 @@ public:
     void setKey(int row, int bit, bool pressed);
     void setKempston(uint8_t v) { kempston = v; }
 
-    // Audio state tracking
     uint64_t beeper_transition_tstates;
     uint64_t last_beeper_state;
     bool beeper_state;

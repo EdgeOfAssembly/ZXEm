@@ -1,5 +1,6 @@
 #include "z80.h"
 #include "ula.h"
+#include "log.h"
 #include <cstdio>
 #include <cstdlib>
 
@@ -256,6 +257,12 @@ int Z80::execute() {
         tstates += 4;
         ula->step(4);
         return 4;
+    }
+
+    if (Log::instance().trace_cpu())
+    {
+        log_trace("cpu PC=%04X AF=%04X BC=%04X DE=%04X HL=%04X IX=%04X IY=%04X SP=%04X",
+                  PC, getAF(), getBC(), getDE(), getHL(), IX, IY, SP);
     }
 
     R = (R & 0x80) | ((R + 1) & 0x7F);
@@ -559,7 +566,7 @@ void Z80::op_ED() {
     switch (op) {
         case 0x40: B = ioRead(getBC()); F = (F & 0x01); setFlagSZP(B); setFlag53(B); base_t = 12; break;
         case 0x41: ioWrite(getBC(), B); base_t = 12; break;
-        case 0x42: { uint16_t v = getHL(); setHL(v - 1); uint8_t r = sub8(A, memRead(getBC()), false); if (F & 0x40) { PC -= 2; } base_t = 16; } break;
+        case 0x42: { uint16_t v = getHL(); setHL(v - 1); sub8(A, memRead(getBC()), false); if (F & 0x40) { PC -= 2; } base_t = 16; } break;
         case 0x43: { uint16_t a = fetch16(); memWrite(a, C); memWrite(a + 1, B); base_t = 20; } break;
         case 0x44: A = sub8(A, 0, false); break;
         case 0x45: { PC = memRead(SP) | ((uint16_t)memRead(SP + 1) << 8); SP += 2; IFF1 = IFF2; base_t = 14; } break;
@@ -567,7 +574,7 @@ void Z80::op_ED() {
         case 0x47: I = A; base_t = 9; break;
         case 0x48: C = ioRead(getBC()); F = (F & 0x01); setFlagSZP(C); setFlag53(C); base_t = 12; break;
         case 0x49: ioWrite(getBC(), C); base_t = 12; break;
-        case 0x4A: { uint16_t v = getHL(); setHL(v - 1); uint8_t r = sub8(A, memRead(getBC()), true); if (F & 0x40) { PC -= 2; } base_t = 16; } break;
+        case 0x4A: { uint16_t v = getHL(); setHL(v - 1); sub8(A, memRead(getBC()), true); if (F & 0x40) { PC -= 2; } base_t = 16; } break;
         case 0x4B: { uint16_t a = fetch16(); C = memRead(a); B = memRead(a + 1); base_t = 20; } break;
         case 0x4C: A = sub8(A, 0, true); break;
         case 0x4D: { PC = memRead(SP) | ((uint16_t)memRead(SP + 1) << 8); SP += 2; base_t = 14; } break;
@@ -628,7 +635,7 @@ void Z80::op_ED() {
 
         case 0x70: { uint8_t v = ioRead(getBC()); F = (F & 0x01); setFlagSZP(v); setFlag53(v); base_t = 12; } break;
         case 0x71: ioWrite(getBC(), 0); base_t = 12; break;
-        case 0x72: { uint16_t v = getHL(); setHL(v - 1); uint8_t r = sub8(A, memRead(getBC()), false); if (F & 0x40) { PC -= 2; } base_t = 16; } break;
+        case 0x72: { uint16_t v = getHL(); setHL(v - 1); sub8(A, memRead(getBC()), false); if (F & 0x40) { PC -= 2; } base_t = 16; } break;
         case 0x73: { uint16_t a = fetch16(); memWrite(a, (uint8_t)(SP & 0xFF)); memWrite(a + 1, (uint8_t)(SP >> 8)); base_t = 20; } break;
         case 0x74: A = sub8(A, 0, false); break;
         case 0x75: { PC = memRead(SP) | ((uint16_t)memRead(SP + 1) << 8); SP += 2; IFF1 = IFF2; base_t = 14; } break;
@@ -636,7 +643,7 @@ void Z80::op_ED() {
         case 0x77: A = I; F = (F & 0x01); setFlagSZ(A); setFlagPV(IFF2); setFlag53(A); base_t = 9; break;
         case 0x78: A = ioRead(getBC()); F = (F & 0x01); setFlagSZP(A); setFlag53(A); base_t = 12; break;
         case 0x79: ioWrite(getBC(), A); base_t = 12; break;
-        case 0x7A: { uint16_t v = getHL(); setHL(v - 1); uint8_t r = sub8(A, memRead(getBC()), true); if (F & 0x40) { PC -= 2; } base_t = 16; } break;
+        case 0x7A: { uint16_t v = getHL(); setHL(v - 1); sub8(A, memRead(getBC()), true); if (F & 0x40) { PC -= 2; } base_t = 16; } break;
         case 0x7B: { uint16_t a = fetch16(); SP = memRead(a) | ((uint16_t)memRead(a + 1) << 8); base_t = 20; } break;
         case 0x7C: A = sub8(A, 0, true); break;
         case 0x7D: { PC = memRead(SP) | ((uint16_t)memRead(SP + 1) << 8); SP += 2; base_t = 14; } break;

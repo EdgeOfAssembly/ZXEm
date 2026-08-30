@@ -1,26 +1,30 @@
 #include "ula.h"
+#include "log.h"
 #include <cstring>
-#include <cstdio>
 
-ULA::ULA() : border(0), beeper(false), tstates(0), frame_tstates(0), line(0), line_tstates(0), flash(false), flash_counter(0), kempston(0),
+ULA::ULA() : border(0), beeper(false), tstates(0), frame_tstates(0), line(0), line_tstates(0),
+             flash(false), flash_counter(0),
+             is128(false), port7ffd(0), port1ffd(0),
+             kempston(0),
              beeper_transition_tstates(0), last_beeper_state(0), beeper_state(false), beeper_changed(false) {
     reset();
 }
 
 void ULA::resetToSyntheticROM() {
     memset(rom, 0, sizeof(rom));
-    // Minimal synthetic Spectrum 48K ROM. This avoids the copyrighted
-    // Sinclair ROM while providing the bare minimum a self-contained game needs.
-    rom[0x0000] = 0xF3; // DI
-    rom[0x0001] = 0xC3; // JP
-    rom[0x0002] = 0x03; // low byte of snapshot PC (Manic Miner)
-    rom[0x0003] = 0x93; // high byte of snapshot PC (Manic Miner)
-    rom[0x0038] = 0xFB; // EI
-    rom[0x0039] = 0xC9; // RET
+    memset(rom1, 0, sizeof(rom1));
+    rom[0x0000] = 0xF3;
+    rom[0x0001] = 0xC3;
+    rom[0x0002] = 0x03;
+    rom[0x0003] = 0x93;
+    rom[0x0038] = 0xFB;
+    rom[0x0039] = 0xC9;
+    memcpy(rom1, rom, 16384);
 }
 
 void ULA::reset() {
     memset(ram, 0, sizeof(ram));
+    memset(ram_banks, 0, sizeof(ram_banks));
     memset(keyboard, 0xFF, sizeof(keyboard));
     border = 0;
     beeper = false;
@@ -35,21 +39,59 @@ void ULA::reset() {
     last_beeper_state = 0;
     beeper_state = false;
     beeper_changed = false;
+    port7ffd = 0;
+    port1ffd = 0;
+    ay.reset();
     resetToSyntheticROM();
 }
 
+uint8_t ULA::paged_bank() const
+{
+    return is128 ? static_cast<uint8_t>(port7ffd & 0x07) : 0;
+}
+
 uint8_t ULA::read(uint16_t addr) {
-    if (addr < 0x4000) return rom[addr];
-    return ram[addr - 0x4000];
+    if (addr < 0x4000) {
+        if (is128 && (port7ffd & 0x10)) return rom1[addr];
+        return rom[addr];
+    }
+    /* 48K and 128K share the same CPU map: 5 / 2 / paged. */
+    if (addr < 0x8000) {
+        return ram_banks[5][addr - 0x4000];
+    }
+    if (addr < 0xC000) {
+        return ram_banks[2][addr - 0x8000];
+    }
+    return ram_banks[paged_bank()][addr - 0xC000];
 }
 
 void ULA::write(uint16_t addr, uint8_t val) {
-    if (addr >= 0x4000) ram[addr - 0x4000] = val;
+    if (addr < 0x4000) return;
+    if (addr < 0x8000) {
+        ram_banks[5][addr - 0x4000] = val;
+        ram[addr - 0x4000] = val;
+        return;
+    }
+    if (addr < 0xC000) {
+        ram_banks[2][addr - 0x8000] = val;
+        ram[addr - 0x4000] = val;
+        return;
+    }
+    ram_banks[paged_bank()][addr - 0xC000] = val;
+    ram[addr - 0x4000] = val;
 }
 
 uint8_t ULA::ioRead(uint16_t port) {
     uint8_t p = (uint8_t)(port & 0xFF);
     if (p == 0x1F) return kempston;
+    /* AY register read: A15=1 A14=1 A1=0 (0xFFFD). */
+    if (is128 && (port & 0xC002) == 0xC000) {
+        if (Log::instance().trace_io())
+        {
+            log_trace("io rd FFFD AY R%u = 0x%02X", ay.selected(), ay.read_data());
+        }
+        return ay.read_data();
+    }
     if ((p & 0x01) == 0) {
         uint8_t addr = (uint8_t)(port >> 8);
         uint8_t result = 0xFF;
@@ -73,7 +115,9 @@ void ULA::beeperSet(bool on) {
 }
 
 float ULA::currentAudioSample() const {
-    return beeper_state ? 0.25f : -0.25f;
+    float beep = beeper_state ? 0.25f : -0.25f;
+    float ay_s = ay.sample() * 0.35f;
+    return beep + ay_s;
 }
 
 void ULA::ioWrite(uint16_t port, uint8_t val) {
@@ -81,20 +125,54 @@ void ULA::ioWrite(uint16_t port, uint8_t val) {
     if ((p & 0x01) == 0) {
         border = val & 0x07;
         beeperSet((val & 0x10) != 0);
-        // Diagnostic console output: if bit 4 is clear, treat low 7 bits as
-        // printable ASCII. Used by test stubs (e.g. ZEXALL CP/M BDOS fn 9).
-        if ((val & 0x10) == 0) {
-            char c = val & 0x7F;
-            if (c == '\r') c = '\n';
-            if (c >= 0x20 || c == '\n') {
-                fputc(c, stderr);
-                fflush(stderr);
+    }
+    if (is128) {
+        /* 128K paging: A15=0 A1=0 (0x7FFD). Bit 5 locks further writes. */
+        if ((port & 0x8002) == 0)
+        {
+            if ((port7ffd & 0x20) == 0)
+            {
+                port7ffd = val;
+                if (Log::instance().trace_io())
+                {
+                    log_trace("io wr 7FFD = 0x%02X bank=%u rom=%u shadow=%u lock=%u",
+                              val, val & 7, (val >> 4) & 1, (val >> 3) & 1, (val >> 5) & 1);
+                }
             }
         }
+        /* AY data: A15=1 A14=0 A1=0 (0xBFFD). */
+        if ((port & 0xC002) == 0x8000)
+        {
+            ay.write_data(val);
+            if (Log::instance().trace_io())
+            {
+                log_trace("io wr BFFD AY R%u = 0x%02X", ay.selected(), val);
+            }
+        }
+        /* AY latch: A15=1 A14=1 A1=0 (0xFFFD). */
+        else if ((port & 0xC002) == 0xC000)
+        {
+            ay.select(val);
+            if (Log::instance().trace_io())
+            {
+                log_trace("io wr FFFD AY select R%u", val & 0x0F);
+            }
+        }
+        /* +2A/+3 1FFD: A15-A12 = 0001, A1=0. */
+        if ((port & 0xF002) == 0x1000)
+        {
+            port1ffd = val;
+        }
+    }
+    if (Log::instance().trace_io() && (p & 0x01) == 0)
+    {
+        log_trace("io wr ULA port=0x%04X val=0x%02X border=%u ear=%u",
+                  port, val, val & 7, (val >> 4) & 1);
     }
 }
 
 void ULA::step(int cycles) {
+    if (is128) ay.step(cycles);
     for (int i = 0; i < cycles; i++) {
         tstates++;
         frame_tstates++;
@@ -117,7 +195,20 @@ void ULA::step(int cycles) {
 }
 
 bool ULA::isContended(uint16_t addr, int tstate) {
-    if (addr < 0x4000 || addr > 0x7FFF) return false;
+    bool contended_addr = false;
+    if (addr >= 0x4000 && addr <= 0x7FFF)
+    {
+        contended_addr = true;
+    }
+    else if (is128 && addr >= 0xC000)
+    {
+        /* Odd-numbered banks are contended on 128K. */
+        contended_addr = (paged_bank() & 1) != 0;
+    }
+    if (!contended_addr)
+    {
+        return false;
+    }
     int line_ts = tstate % TSTATES_PER_LINE;
     int cur_line = (tstate / TSTATES_PER_LINE) % LINES_PER_FRAME;
     if (cur_line < ULA_FIRST_LINE || cur_line >= ULA_LAST_LINE) return false;
@@ -133,23 +224,24 @@ void ULA::renderFrame(uint32_t* pixels, int pitch) {
         0xFF00FF00, 0xFF00FFFF, 0xFFFFFF00, 0xFFFFFFFF
     };
 
+    int screen_bank = (is128 && (port7ffd & 0x08)) ? 7 : 5;
+    uint8_t* scr_ram = ram_banks[screen_bank];
+
     for (int y = 0; y < SCREEN_HEIGHT; y++) {
         int pixel_y = y;
         int char_y = pixel_y >> 3;
-        int line_y = pixel_y & 7;
-
-        uint32_t* line = pixels + y * (pitch / 4);
+        uint32_t* row_pixels = pixels + y * (pitch / 4);
 
         for (int x = 0; x < SCREEN_WIDTH; x++) {
             int pixel_x = x;
             int char_x = pixel_x >> 3;
             int line_x = 7 - (pixel_x & 7);
 
-            int bitmap_addr = 0x4000 + ((char_y & 0x18) << 8) + ((char_y & 0x07) << 5) + (char_x);
-            int attr_addr = 0x5800 + (char_y << 5) + char_x;
+            int bitmap_addr = ((char_y & 0x18) << 8) + ((char_y & 0x07) << 5) + (char_x);
+            int attr_addr = 0x1800 + (char_y << 5) + char_x;
 
-            uint8_t bitmap = ram[bitmap_addr - 0x4000];
-            uint8_t attr = ram[attr_addr - 0x4000];
+            uint8_t bitmap = scr_ram[bitmap_addr];
+            uint8_t attr = scr_ram[attr_addr];
 
             int ink = attr & 0x07;
             int paper = (attr >> 3) & 0x07;
@@ -164,7 +256,7 @@ void ULA::renderFrame(uint32_t* pixels, int pitch) {
                 color_idx = flashing ? (ink + bright) : (paper + bright);
             }
 
-            line[x] = palette[color_idx];
+            row_pixels[x] = palette[color_idx];
         }
     }
 }

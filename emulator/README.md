@@ -1,125 +1,101 @@
-# ZXEm — ZX Spectrum 48K Emulator
+# ZXEm — ZX Spectrum Emulator
 
-A SDL2-based ZX Spectrum 48K emulator focused on accuracy, authenticity, and clean reverse engineering.
+SDL2 ZX Spectrum 48K/128K emulator. Loads the World of Spectrum-style
+collection from the filesystem **or from a zip archive in-place** (no extract).
+
+Version **0.2**.
 
 ## Build
 
-Requires SDL2 and a C++17 compiler. On Gentoo:
+Requires SDL2, libzip, zlib, and g++ (C++23):
 
 ```bash
-sudo emerge -av libsdl2
-```
-
-Then build:
-
-```bash
-make
+make -s -j"$(nproc)"
+make -s test
+make -s verify
 ```
 
 ## Run
 
-```bash
-./zxem
+```text
+zxem [options] [input…]
 ```
 
-By default `config.ini.example` is used as a template; copy it to `config.ini` and edit paths for your system.
-
-You can also load a different `.z80` snapshot or a real Spectrum ROM:
+No arguments prints usage (same as `-h` / `--help`). `-v` / `--version`
+prints `zxem 0.2`. Options and inputs may be interleaved.
 
 ```bash
 ./zxem /path/to/game.z80
-./zxem --rom /path/to/48.rom
-./zxem --rom-dir rom /path/to/game.z80
-./zxem --config /path/to/config.ini
+./zxem /mnt/Games.zip --list
+./zxem /mnt/Games.zip#Games/Manic\ Miner/Manic\ Miner\ (1983)(Bug-Byte).z80
+./zxem /mnt/Games.zip --member 'Manic Miner'
+./zxem --model spectrum128 game.sna
+./zxem --headless --frames 100 game.tap
+./zxem --pok game.pok game.z80
 ```
 
-### Configuration file (`config.ini`)
+### Options
 
-For day-to-day use, create `config.ini` next to the `zxem` binary:
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `-h`, `--help` | | Usage |
+| `-v`, `--version` | | `zxem 0.2` (never verbose) |
+| `--list` | off | List playable files in a dir/zip to stdout |
+| `--member NAME` | | Substring match inside a zip (prefers snapshots) |
+| `--model MODEL` | spectrum48 | `spectrum48` or `spectrum128` |
+| `--rom FILE` | synthetic | 16K/32K ROM image |
+| `--rom-dir DIR` | `./rom` | Search for a ROM |
+| `--config FILE` | `./config.ini` | INI overrides |
+| `--pok FILE` | | Apply POK cheats after load |
+| `--headless` | off | No SDL window |
+| `--frames N` | | Run N frames and exit (implies `--headless`) |
+| `--no-audio` | audio on | Disable audio |
+| `--no-log` | log on | Disable RE logging |
+| `--log-file PATH` | stderr | Also write the RE log |
+| `--log-level LVL` | info | error\|warn\|info\|debug\|trace |
+| `--trace-cpu` | off | Every instruction (slow) |
+| `--trace-io` | off | Port I/O |
+| `--verbose` | | `--log-level debug` |
 
-```ini
-[emulator]
-game = /path/to/game.z80
+A zip or directory without `--member` lists playable images on **stdout**.
 
-[rom]
-; Uncomment the next line to use a real Spectrum ROM:
-; file = /path/to/spec48.rom
-rom_dir = rom
+### Formats
+
+Loaded: `.z80` `.sna` `.szx` `.sp` `.slt` `.tap` `.tzx` `.scl` `.trd` `.rom` `.dck` `.pok`  
+Recognised (needs more hardware): `.dsk` `.mgt` `.mdr` `.fdi` `.udi` `.csw` `.d80` `.d40` `.ipf` `.spg`  
+Archives: `.zip` via libzip (STORE or deflate) — **never extracted to disk**.
+
+`/mnt/Games.zip` is the 1.7 GiB STORE archive of `/mnt/games`.
+
+### Tape / disk fast-load
+
+TAP/TZX inject CODE blocks and jump to the last CODE start. SCL/TRD inject
+TR-DOS CODE files. BASIC-only loaders still need a real Spectrum ROM.
+
+### 128K
+
+`--model spectrum128` (or a 128K snapshot) enables paging on port `0x7FFD`
+and AY-3-8912 on `0xFFFD`/`0xBFFD`.
+
+### Headless batch
+
+```bash
+./zxem --headless --frames 50 /mnt/games/Manic\ Miner/*.z80
+python3 batch_test.py
 ```
-
-Settings are loaded from `config.ini` by default. Command-line arguments override the config file, so you can still run one-off games without editing the file.
-
-If no ROM is supplied, the emulator creates a minimal synthetic ROM automatically. This synthetic ROM contains no copyrighted Sinclair code and is sufficient for self-contained 48K games like *Manic Miner*.
 
 ## Controls
 
-### Keyboard (Spectrum layout)
+| PC key | Spectrum |
+|--------|----------|
+| arrows | Kempston |
+| Space, Enter, letters | matching Spectrum keys |
+| Esc | Quit |
+| F1 | Reload |
+| F5 / F9 | Save `savestate.z80` |
+| F10 | Load `savestate.z80` |
 
-| PC key | Spectrum key(s) | Action |
-|--------|-----------------|--------|
-| `←` arrow | Kempston left / `Q` / `A` | Move left |
-| `→` arrow | Kempston right / `E` / `D` / `O` / `P` | Move right |
-| `Space` | `Space` / `M` / `N` / `B` | Jump |
-| `Enter` | `Enter` | Start game |
-| `P` | `P` | Pause |
-| `H` / `J` / `K` / `L` | `H` / `J` / `K` / `L` | Toggle tune |
-| `Esc` | — | Quit |
+## Legal
 
-### Emulator hotkeys
-
-| Key | Action |
-|-----|--------|
-| `F1` | Reset to initial snapshot state |
-| `F5` | Save state to `savestate.z80` |
-| `F9` | Quick save state |
-| `F10` | Quick load state |
-
-### Joystick / gamepad
-
-SDL joystick support is enabled automatically if a joystick is present. Currently mapped:
-
-- D-pad / left stick X axis → Kempston left/right
-- Button 0 (A/Cross) → Jump
-- Button 1 (B/Circle) → Start
-- Button 6 (Select) → Jump
-- Button 7 (Start) → Start
-
-This will be refined once a real USB joystick is tested.
-
-## How it works
-
-- The 30-byte Z80 v1 snapshot header gives the initial CPU state.
-- The 48KB RAM block is decompressed from the `.z80` file using the classic v1 RLE format.
-- A synthetic 16KB ROM at `0x0000-0x3FFF` provides the IM1 ISR at `0x0038` (`EI; RET`) and a reset vector; the game is entirely self-contained in RAM and makes no ROM calls.
-- The Z80 core executes instructions, applies Spectrum 48K memory contention for `0x4000-0x7FFF`, and handles IM1 interrupts.
-- The ULA decodes the `0x4000` pixel bitmap and `0x5800` attributes into a 256×192 texture, scaled 3× to a 768×576 window.
-- Sound is generated from the EAR/MIC bit (bit 4) of `OUT (0xFE),A` writes.
-
-## File layout
-
-```
-emulator/
-├── Makefile
-├── README.md
-├── zxem                    # compiled binary
-├── src/
-│   ├── main.cpp            # SDL2 loop, input, audio, save states
-│   ├── z80.cpp/h           # Z80 CPU emulation
-│   ├── ula.cpp/h           # memory, I/O, screen, contention
-│   ├── snapshot.cpp/h      # .z80 v1 load/save
-│   └── config.cpp/h        # INI-style config loader
-├── config.ini.example      # example configuration file
-└── obj/                    # build artifacts
-```
-
-## Reverse-engineering notes
-
-See `../reverse/` for the full reverse-engineering report on *Manic Miner*.
-
-See `../knowledge_base/` for long-form documentation on the emulator, the game, ROM legal issues, and ROM accuracy options.
-
-## Legal / ROM notice
-
-This emulator does not include the copyrighted Sinclair ZX Spectrum ROM. A minimal synthetic ROM is generated at runtime. The original game snapshot is the property of its respective copyright holders and is used here for personal reverse-engineering.
-
-If you want full Spectrum compatibility, you can supply your own legally owned 16KB Spectrum 48K ROM image. See `../knowledge_base/legal/rom_legal.md`.
+No Sinclair ROM is shipped. A synthetic ROM is generated unless you pass
+`--rom` with a ROM you own. See `../knowledge_base/legal/`.

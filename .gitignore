@@ -2,17 +2,26 @@
 *.o
 obj/
 zxem
+tests/run_tests
+emulator/tests/run_tests
+emulator/zxem
+emulator/obj/
 *.bin
 *.rom
 *.z80
 *.sna
 *.tap
 *.tzx
+!tests/fixtures/**
 config.ini
 savestate.z80
 
 # Do not commit copyrighted ROMs or game snapshots
 rom/
+
+__pycache__/
+*.pyo
+*.pyc
 
 # Editor and OS files
 *.swp
@@ -23,3 +32,9 @@ rom/
 # IDE
 .vscode/
 .idea/
+
+# GitHub / packaging
+*.zip
+*.tar.gz
+build/
+dist/
