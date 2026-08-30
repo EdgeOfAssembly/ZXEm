@@ -3,7 +3,7 @@
 SDL2 ZX Spectrum 48K/128K emulator. Loads the World of Spectrum-style
 collection from the filesystem **or from a zip archive in-place** (no extract).
 
-Version **0.4**.
+Version **0.5**.
 
 ## Build
 
@@ -32,7 +32,7 @@ zxem [options] [input…]
 ```
 
 No arguments prints usage (same as `-h` / `--help`). `-v` / `--version`
-prints `zxem 0.4`. Options and inputs may be interleaved.
+prints `zxem 0.5`. Options and inputs may be interleaved.
 
 ```bash
 ./zxem /path/to/game.z80
@@ -49,7 +49,7 @@ prints `zxem 0.4`. Options and inputs may be interleaved.
 | Flag | Default | Meaning |
 |------|---------|---------|
 | `-h`, `--help` | | Usage |
-| `-v`, `--version` | | `zxem 0.4` (never verbose) |
+| `-v`, `--version` | | `zxem 0.5` (never verbose) |
 | `--list` | off | List playable files in a dir/zip to stdout |
 | `--member NAME` | | Substring match inside a zip (prefers snapshots) |
 | `--model MODEL` | spectrum48 | `spectrum48`, `spectrum128`, or `plus3` |
@@ -69,6 +69,7 @@ prints `zxem 0.4`. Options and inputs may be interleaved.
 | `--trace-cpu` | off | Every instruction (slow) |
 | `--trace-io` | off | Port I/O |
 | `--verbose` | | `--log-level debug` |
+| `--keymap NAME` | spectrum | `spectrum` (1:1) or `wasd` (WASD move, Left Ctrl jump/fire) |
 
 A zip or directory without `--member` lists playable images on **stdout**.
 
@@ -102,10 +103,27 @@ python3 batch_test.py
 
 ## Controls
 
-| PC key | Spectrum |
-|--------|----------|
-| arrows | Kempston |
-| Space, Enter, letters | matching Spectrum keys |
+Default (`--keymap spectrum`) is a 1:1 Spectrum keyboard. There is **no in-game
+rebind menu** yet. Use `--keymap wasd` or `config.ini`:
+
+```ini
+[input]
+keymap = wasd
+```
+
+| `--keymap wasd` | Spectrum / Kempston |
+|-----------------|---------------------|
+| W / Up | forward (A) + Kempston up |
+| A / Left | left (Z) + Kempston left |
+| D / Right | right (X) + Kempston right |
+| S / Down | Kempston down |
+| Left Ctrl | jump (Q) + Kempston fire |
+
+Knight Lore: **1** then **0** (keyboard) or **2** then **0** (Kempston); both work with `wasd`.
+
+| Always | |
+|--------|--|
+| arrows | Kempston (also with default keymap) |
 | Esc | Quit |
 | F1 | Reload |
 | F5 / F9 | Save `savestate.z80` |

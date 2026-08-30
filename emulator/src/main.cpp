@@ -58,6 +58,7 @@ static std::string g_trdos_rom_path;
 static std::string g_plus3_rom_path;
 static std::string g_config_path = "config.ini";
 static std::string g_model = "spectrum48";
+static std::string g_keymap = "spectrum";
 static bool g_no_system_rom = false;
 static std::string g_member;
 static std::string g_pok_path;
@@ -426,6 +427,13 @@ static void apply_spectrum_keys()
     };
     for (const Map& m : kmap)
     {
+        if (g_keymap == "wasd"
+            && (m.sc == SDL_SCANCODE_W || m.sc == SDL_SCANCODE_A
+                || m.sc == SDL_SCANCODE_S || m.sc == SDL_SCANCODE_D
+                || m.sc == SDL_SCANCODE_LCTRL || m.sc == SDL_SCANCODE_RCTRL))
+        {
+            continue;
+        }
         if (ks[m.sc])
         {
             ula.setKey(m.row, m.bit, true);
@@ -453,6 +461,35 @@ static void apply_spectrum_keys()
     {
         joy |= 0x10;
     }
+    if (g_keymap == "wasd")
+    {
+        /* Doom-ish overlay: WASD + arrows move; LCtrl jump/fire.
+         * Also presses Knight Lore keyboard keys (A/Z/X/Q) so menu option 1 works. */
+        if (ks[SDL_SCANCODE_W] || ks[SDL_SCANCODE_UP])
+        {
+            ula.setKey(1, 0, true); /* A = forward */
+            joy |= 0x08;
+        }
+        if (ks[SDL_SCANCODE_S] || ks[SDL_SCANCODE_DOWN])
+        {
+            joy |= 0x04;
+        }
+        if (ks[SDL_SCANCODE_A] || ks[SDL_SCANCODE_LEFT])
+        {
+            ula.setKey(0, 1, true); /* Z = left */
+            joy |= 0x02;
+        }
+        if (ks[SDL_SCANCODE_D] || ks[SDL_SCANCODE_RIGHT])
+        {
+            ula.setKey(0, 2, true); /* X = right */
+            joy |= 0x01;
+        }
+        if (ks[SDL_SCANCODE_LCTRL] || ks[SDL_SCANCODE_RCTRL])
+        {
+            ula.setKey(2, 0, true); /* Q = jump */
+            joy |= 0x10;
+        }
+    }
     ula.setKempston(joy);
     sticky_decay(); /* re-asserts still-sticky taps after memset */
 }
@@ -470,7 +507,7 @@ static void pump_input()
             case SDL_KEYDOWN:
                 if (!event.key.repeat)
                 {
-                    log_info("key down name=%s scancode=%s (%d) sdlk=%d",
+                    log_debug("key down name=%s scancode=%s (%d) sdlk=%d",
                              SDL_GetKeyName(event.key.keysym.sym),
                              SDL_GetScancodeName(event.key.keysym.scancode),
                              static_cast<int>(event.key.keysym.scancode),
@@ -479,7 +516,7 @@ static void pump_input()
                 }
                 break;
             case SDL_KEYUP:
-                log_info("key up   name=%s scancode=%s (%d)",
+                log_debug("key up   name=%s scancode=%s (%d)",
                          SDL_GetKeyName(event.key.keysym.sym),
                          SDL_GetScancodeName(event.key.keysym.scancode),
                          static_cast<int>(event.key.keysym.scancode));
@@ -543,6 +580,7 @@ static void print_usage(const char* argv0)
             "      --log-level LVL   error|warn|info|debug|trace (default: info)\n"
             "      --trace-cpu       Log every instruction (startup; default: off)\n"
             "      --trace-io        Log I/O ports (default: off)\n"
+            "      --keymap NAME     spectrum (default) or wasd (WASD+LCtrl)\n"
             "      --verbose         Same as --log-level debug\n"
             "\n"
             "Formats: %s\n"
@@ -586,6 +624,10 @@ static void apply_config(const Config& cfg)
     if (cfg.has("rom", "dir"))
     {
         g_rom_dir = cfg.getString("rom", "dir", g_rom_dir);
+    }
+    if (cfg.has("input", "keymap"))
+    {
+        g_keymap = cfg.getString("input", "keymap", g_keymap);
     }
     if (cfg.has("video", "scale"))
     {
@@ -767,6 +809,13 @@ int main(int argc, char* argv[])
                 saw_config_flag = true;
             }
         }
+        else if (strncmp(a, "--keymap", 8) == 0)
+        {
+            if (!take_value(i, argc, argv, "--keymap", g_keymap))
+            {
+                return 1;
+            }
+        }
         else if (strcmp(a, "--no-system-rom") == 0)
         {
             g_no_system_rom = true;
@@ -945,6 +994,18 @@ int main(int argc, char* argv[])
                 g_model.c_str());
         return 1;
     }
+
+    for (char& c : g_keymap)
+    {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    if (g_keymap != "spectrum" && g_keymap != "wasd")
+    {
+        fprintf(stderr, "Error: unsupported keymap '%s'. Supported: spectrum, wasd\n",
+                g_keymap.c_str());
+        return 1;
+    }
+    log_info("keymap=%s", g_keymap.c_str());
 
     if (g_headless)
     {

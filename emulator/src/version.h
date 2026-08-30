@@ -5,6 +5,6 @@
 #pragma once
 
 #define ZXEM_VERSION_MAJOR 0
-#define ZXEM_VERSION_MINOR 4
+#define ZXEM_VERSION_MINOR 5
 #define ZXEM_VERSION_PATCH 0
-#define ZXEM_VERSION "0.4"
+#define ZXEM_VERSION "0.5"
