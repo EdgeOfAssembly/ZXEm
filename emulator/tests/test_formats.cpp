@@ -47,10 +47,18 @@ TEST_CASE("TAP CODE block jumps to start address")
 
 TEST_CASE("z80_page_to_bank maps 3..10 to 0..7")
 {
-    REQUIRE(z80_page_to_bank(3) == 0);
-    REQUIRE(z80_page_to_bank(8) == 5);
-    REQUIRE(z80_page_to_bank(10) == 7);
-    REQUIRE(z80_page_to_bank(2) == -1);
+    REQUIRE(z80_page_to_bank(3, true) == 0);
+    REQUIRE(z80_page_to_bank(8, true) == 5);
+    REQUIRE(z80_page_to_bank(10, true) == 7);
+    REQUIRE(z80_page_to_bank(2, true) == -1);
+}
+
+TEST_CASE("48K Z80 pages 8/4/5 are banks 5/2/0")
+{
+    REQUIRE(z80_page_to_bank(8, false) == 5);
+    REQUIRE(z80_page_to_bank(4, false) == 2);
+    REQUIRE(z80_page_to_bank(5, false) == 0);
+    REQUIRE(z80_page_to_bank(4, true) == 1);
 }
 
 TEST_CASE("media_detect uses magic for TZX and SCL")

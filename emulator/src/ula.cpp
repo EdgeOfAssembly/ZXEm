@@ -237,7 +237,8 @@ void ULA::renderFrame(uint32_t* pixels, int pitch) {
             int char_x = pixel_x >> 3;
             int line_x = 7 - (pixel_x & 7);
 
-            int bitmap_addr = ((char_y & 0x18) << 8) + ((char_y & 0x07) << 5) + (char_x);
+            int bitmap_addr = ((pixel_y & 0xC0) << 5) | ((pixel_y & 0x07) << 8) |
+                              ((pixel_y & 0x38) << 2) | char_x;
             int attr_addr = 0x1800 + (char_y << 5) + char_x;
 
             uint8_t bitmap = scr_ram[bitmap_addr];

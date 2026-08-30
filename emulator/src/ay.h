@@ -18,13 +18,14 @@ public:
     void step(int cycles);
     float sample() const;
 
-    static const int CLOCK_DIV = 8;
+    static const int CLOCK_DIV = 2;
 
 private:
     uint8_t regs[16];
     uint8_t reg_select;
     int counter_a, counter_b, counter_c;
     int noise_counter;
+    uint32_t noise_lfsr;
     int env_counter;
     bool tone_a, tone_b, tone_c;
     bool noise_out;

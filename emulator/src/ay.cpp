@@ -8,6 +8,7 @@ void AY38912::reset() {
     reg_select = 0;
     counter_a = counter_b = counter_c = 0;
     noise_counter = 0;
+    noise_lfsr = 1;
     env_counter = 0;
     tone_a = tone_b = tone_c = false;
     noise_out = false;
@@ -22,8 +23,8 @@ void AY38912::reset() {
 void AY38912::writeReg(uint8_t reg, uint8_t val) {
     if (reg < 16) {
         regs[reg] = val;
-        if (reg == 13) {
-            env_period = (regs[13] | ((uint16_t)regs[12] << 8));
+        if (reg == 11 || reg == 12) {
+            env_period = regs[11] | (static_cast<uint16_t>(regs[12]) << 8);
             if (env_period < 1) env_period = 1;
         }
         if (reg == 13) {
@@ -31,8 +32,14 @@ void AY38912::writeReg(uint8_t reg, uint8_t val) {
             env_hold = (env_shape & 1) != 0;
             env_alt = (env_shape & 2) != 0;
             env_attack = (env_shape & 4) != 0;
+            if ((env_shape & 8) == 0)
+            {
+                env_hold = true;
+            }
             env_step = 0;
             env_volume = env_attack ? 0 : 15;
+            env_period = regs[11] | (static_cast<uint16_t>(regs[12]) << 8);
+            if (env_period < 1) env_period = 1;
         }
     }
 }
@@ -91,9 +98,9 @@ void AY38912::step(int cycles) {
             uint8_t np = regs[6] & 0x1F;
             if (np < 1) np = 1;
             noise_counter += np;
-            uint32_t bit = ((regs[7] & 1) ? 1 : 0) ^ ((regs[7] & 2) ? 1 : 0);
-            regs[7] = (regs[7] >> 1) | (bit << 16);
-            noise_out = (regs[7] & 1) != 0;
+            const uint32_t bit = (noise_lfsr ^ (noise_lfsr >> 3)) & 1u;
+            noise_lfsr = (noise_lfsr >> 1) | (bit << 16);
+            noise_out = (noise_lfsr & 1u) != 0;
         }
 
         env_counter--;
@@ -135,9 +142,7 @@ float AY38912::sample() const {
         bool tone_off = (mixer >> ch) & 1;
         bool noise_off = (mixer >> (ch + 3)) & 1;
 
-        bool out = false;
-        if (!tone_off) out = out || tone;
-        if (!noise_off) out = out || noise_out;
+        const bool out = (tone || tone_off) && (noise_out || noise_off);
 
         uint8_t vol_reg = regs[8 + ch];
         int vol;

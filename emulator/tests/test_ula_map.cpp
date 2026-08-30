@@ -34,6 +34,18 @@ TEST_CASE("128K C000 follows port 7FFD bank bits")
     REQUIRE(ula.read(0x8000) == 0x00); /* bank 2 is not paged */
 }
 
+TEST_CASE("bitmap address differs for scanlines in the same cell")
+{
+    ULA ula;
+    ula.reset();
+    ula.ram_banks[5][0] = 0x80;
+    ula.ram_banks[5][0x0100] = 0x01;
+    ula.ram_banks[5][0x1800] = 0x07; /* white ink, black paper */
+    uint32_t pixels[ULA::SCREEN_WIDTH * ULA::SCREEN_HEIGHT];
+    ula.renderFrame(pixels, ULA::SCREEN_WIDTH * 4);
+    REQUIRE(pixels[0] != pixels[ULA::SCREEN_WIDTH]);
+}
+
 TEST_CASE("128K 8000 is always bank 2")
 {
     ULA ula;

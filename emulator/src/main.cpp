@@ -863,7 +863,17 @@ int main(int argc, char* argv[])
                     z80.SP = static_cast<uint16_t>(z80.SP - 2);
                     ula.write(z80.SP, static_cast<uint8_t>(z80.PC & 0xFF));
                     ula.write(static_cast<uint16_t>(z80.SP + 1), static_cast<uint8_t>(z80.PC >> 8));
-                    z80.PC = 0x0038;
+                    if (z80.IM == 2)
+                    {
+                        const uint16_t vec = static_cast<uint16_t>((static_cast<uint16_t>(z80.I) << 8) | 0xFF);
+                        const uint8_t lo = ula.read(vec);
+                        const uint8_t hi = ula.read(static_cast<uint16_t>(vec + 1));
+                        z80.PC = static_cast<uint16_t>(lo | (static_cast<uint16_t>(hi) << 8));
+                    }
+                    else
+                    {
+                        z80.PC = 0x0038;
+                    }
                     tstates_this_frame += 7;
                 }
             }

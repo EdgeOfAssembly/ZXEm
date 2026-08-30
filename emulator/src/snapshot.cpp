@@ -14,11 +14,27 @@
 #include <sys/stat.h>
 #include <vector>
 
-int z80_page_to_bank(uint8_t page)
+int z80_page_to_bank(uint8_t page, bool is128k)
 {
-    if (page >= 3 && page <= 10)
+    if (is128k)
     {
-        return static_cast<int>(page) - 3;
+        if (page >= 3 && page <= 10)
+        {
+            return static_cast<int>(page) - 3;
+        }
+        return -1;
+    }
+    if (page == 8)
+    {
+        return 5;
+    }
+    if (page == 4)
+    {
+        return 2;
+    }
+    if (page == 5)
+    {
+        return 0;
     }
     return -1;
 }
@@ -182,20 +198,21 @@ bool load_z80(const uint8_t* data, size_t size, Z80& z80, ULA& ula)
     if (is128k)
     {
         ula.setModel128(true);
-        if (ext_len > 23)
+        if (ext_len >= 4)
         {
-            ula.port7ffd = ext[23];
+            ula.port7ffd = ext[3];
+        }
+        if (ext_len >= 23)
+        {
+            ula.ay.select(ext[6]);
+            for (int i = 0; i < 16; i++)
+            {
+                ula.ay.writeReg(static_cast<uint8_t>(i), ext[7 + i]);
+            }
         }
         if (ext_len >= 55)
         {
-            ula.port1ffd = ext[51];
-        }
-        if (ext_len >= 54)
-        {
-            for (int i = 0; i < 16; i++)
-            {
-                ula.ay.writeReg(static_cast<uint8_t>(i), ext[39 + i]);
-            }
+            ula.port1ffd = ext[54];
         }
     }
     c.skip(ext_len);
@@ -208,7 +225,7 @@ bool load_z80(const uint8_t* data, size_t size, Z80& z80, ULA& ula)
         {
             break;
         }
-        const int bank = z80_page_to_bank(page);
+        const int bank = z80_page_to_bank(page, is128k);
         const bool uncompressed = (block_len == 0xFFFF);
         log_debug("Z80 block page=%u bank=%d len=%u uncompressed=%d",
                   page, bank, block_len, uncompressed ? 1 : 0);
@@ -381,7 +398,7 @@ bool load_sna(const uint8_t* data, size_t size, Z80& z80, ULA& ula)
     ula.border = h[26] & 7;
 
     const uint8_t* ram48 = data + 27;
-    const bool is128k = (size >= 49179 && (size == 131103 || size == 131107 || size > 49179));
+    const bool is128k = (size >= 131103);
     log_info("SNA size=%zu SP=0x%04X border=%u 128K=%d", size, z80.SP, ula.border, is128k ? 1 : 0);
 
     memcpy(ula.ram_banks[5], ram48 + 0x0000, 16384);
@@ -620,19 +637,18 @@ static int tzx_skip_or_data(ByteCursor& c, uint8_t id, uint8_t& flag,
         }
         case 0x11:
         {
-            if (!c.skip(15))
+            /* 5×WORD pulses + pilot count + used-bits + pause + 3-byte length = 17. */
+            if (!c.skip(12))
             {
                 return -1;
             }
-            uint8_t bits_last = 0;
             uint16_t pause = 0;
             uint32_t len = 0;
-            if (!c.get8(bits_last) || !c.get16le(pause) || !c.get24le(len))
+            if (!c.get16le(pause) || !c.get24le(len))
             {
                 return -1;
             }
             (void)pause;
-            (void)bits_last;
             if (len < 2)
             {
                 return c.skip(len) ? 0 : -1;
@@ -662,7 +678,8 @@ static int tzx_skip_or_data(ByteCursor& c, uint8_t id, uint8_t& flag,
         }
         case 0x14:
         {
-            if (!c.skip(5))
+            /* WORD zero, WORD one, used-bits, pause, 3-byte length = 10. */
+            if (!c.skip(4))
             {
                 return -1;
             }
@@ -703,7 +720,7 @@ static int tzx_skip_or_data(ByteCursor& c, uint8_t id, uint8_t& flag,
             return c.skip(2) ? 0 : -1;
         case 0x25:
         case 0x23:
-            return 0;
+            return c.skip(2) ? 0 : -1;
         case 0x26:
         {
             uint16_t n = 0;
@@ -761,7 +778,7 @@ static int tzx_skip_or_data(ByteCursor& c, uint8_t id, uint8_t& flag,
                 return -1;
             }
             uint32_t n = 0;
-            return c.get24le(n) && c.skip(n) ? 0 : -1;
+            return c.get32le(n) && c.skip(n) ? 0 : -1;
         }
         case 0x5A:
             return c.skip(9) ? 0 : -1;
