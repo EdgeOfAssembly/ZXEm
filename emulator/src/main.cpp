@@ -208,7 +208,7 @@ static void sticky_press(int row, int bit)
     {
         return;
     }
-    g_key_sticky[row][bit] = 4;
+    g_key_sticky[row][bit] = 12; /* ~240 ms at 50 Hz — menu polls once per draw */
     ula.setKey(row, bit, true);
 }
 
@@ -233,11 +233,9 @@ static void matrix_key(int row, int bit, bool pressed)
     if (pressed)
     {
         sticky_press(row, bit);
+        return;
     }
-    else
-    {
-        ula.setKey(row, bit, false);
-    }
+    /* Same-poll KEYUP must not clear a tap; sticky_decay holds it. */
 }
 
 static void handle_key(SDL_Keycode key, bool pressed)
@@ -385,6 +383,7 @@ static void handle_key(SDL_Keycode key, bool pressed)
 static void apply_spectrum_keys()
 {
     const Uint8* ks = SDL_GetKeyboardState(nullptr);
+    std::memset(ula.keyboard, 0xFF, sizeof(ula.keyboard));
 
     struct Map
     {
@@ -455,7 +454,7 @@ static void apply_spectrum_keys()
         joy |= 0x10;
     }
     ula.setKempston(joy);
-    sticky_decay();
+    sticky_decay(); /* re-asserts still-sticky taps after memset */
 }
 
 static void print_usage(const char* argv0)
@@ -1107,6 +1106,13 @@ int main(int argc, char* argv[])
                 }
             }
             apply_spectrum_keys();
+            if ((ula.keyboard[3] & 1) == 0 || (ula.keyboard[4] & 1) == 0)
+            {
+                log_info("matrix 1=%s 0=%s row3=0x%02X row4=0x%02X",
+                         (ula.keyboard[3] & 1) ? "up" : "DOWN",
+                         (ula.keyboard[4] & 1) ? "up" : "DOWN",
+                         ula.keyboard[3], ula.keyboard[4]);
+            }
         }
 
         int tstates_this_frame = 0;
