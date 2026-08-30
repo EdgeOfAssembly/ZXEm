@@ -43,6 +43,11 @@ public:
     uint8_t ioRead(uint16_t port);
     void ioWrite(uint16_t port, uint8_t val);
     void step(int cycles);
+    /**
+     * @brief Decode the 256×192 display file into ARGB8888 (one pixel per uint32).
+     * @param[out] pixels Destination; at least 256×192 entries if pitch is 256×4.
+     * @param[in] pitch Bytes per destination row (typically SCREEN_WIDTH * 4).
+     */
     void renderFrame(uint32_t* pixels, int pitch);
     bool isContended(uint16_t addr, int tstate);
 

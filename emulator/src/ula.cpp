@@ -394,41 +394,52 @@ void ULA::renderFrame(uint32_t* pixels, int pitch) {
         0xFF000000, 0xFF0000FF, 0xFFFF0000, 0xFFFF00FF,
         0xFF00FF00, 0xFF00FFFF, 0xFFFFFF00, 0xFFFFFFFF
     };
+    static uint16_t line_bmp[SCREEN_HEIGHT];
+    static bool line_bmp_ready = false;
+    if (!line_bmp_ready)
+    {
+        for (int y = 0; y < SCREEN_HEIGHT; y++)
+        {
+            line_bmp[y] = static_cast<uint16_t>(
+                ((y & 0xC0) << 5) | ((y & 0x07) << 8) | ((y & 0x38) << 2));
+        }
+        line_bmp_ready = true;
+    }
 
-    int screen_bank = (is128 && (port7ffd & 0x08)) ? 7 : 5;
-    uint8_t* scr_ram = ram_banks[screen_bank];
+    const int screen_bank = (is128 && (port7ffd & 0x08)) ? 7 : 5;
+    const uint8_t* const scr = ram_banks[screen_bank];
+    const int stride = pitch / 4;
+    const bool flash_on = flash;
 
-    for (int y = 0; y < SCREEN_HEIGHT; y++) {
-        int pixel_y = y;
-        int char_y = pixel_y >> 3;
-        uint32_t* row_pixels = pixels + y * (pitch / 4);
-
-        for (int x = 0; x < SCREEN_WIDTH; x++) {
-            int pixel_x = x;
-            int char_x = pixel_x >> 3;
-            int line_x = 7 - (pixel_x & 7);
-
-            int bitmap_addr = ((pixel_y & 0xC0) << 5) | ((pixel_y & 0x07) << 8) |
-                              ((pixel_y & 0x38) << 2) | char_x;
-            int attr_addr = 0x1800 + (char_y << 5) + char_x;
-
-            uint8_t bitmap = scr_ram[bitmap_addr];
-            uint8_t attr = scr_ram[attr_addr];
-
-            int ink = attr & 0x07;
-            int paper = (attr >> 3) & 0x07;
-            int bright = (attr & 0x40) ? 8 : 0;
-            bool flashing = (attr & 0x80) && flash;
-
-            bool pixel_on = (bitmap >> line_x) & 1;
-            int color_idx;
-            if (pixel_on) {
-                color_idx = flashing ? (paper + bright) : (ink + bright);
-            } else {
-                color_idx = flashing ? (ink + bright) : (paper + bright);
+    for (int y = 0; y < SCREEN_HEIGHT; y++)
+    {
+        const uint8_t* bits = scr + line_bmp[y];
+        const uint8_t* attrs = scr + 0x1800 + ((y >> 3) << 5);
+        uint32_t* dst = pixels + y * stride;
+        for (int col = 0; col < 32; col++)
+        {
+            const uint8_t bitmap = bits[col];
+            const uint8_t attr = attrs[col];
+            const int bright = (attr & 0x40) ? 8 : 0;
+            int ink = (attr & 0x07) + bright;
+            int paper = ((attr >> 3) & 0x07) + bright;
+            if ((attr & 0x80) && flash_on)
+            {
+                const int tmp = ink;
+                ink = paper;
+                paper = tmp;
             }
-
-            row_pixels[x] = palette[color_idx];
+            const uint32_t c1 = palette[ink];
+            const uint32_t c0 = palette[paper];
+            dst[0] = (bitmap & 0x80) ? c1 : c0;
+            dst[1] = (bitmap & 0x40) ? c1 : c0;
+            dst[2] = (bitmap & 0x20) ? c1 : c0;
+            dst[3] = (bitmap & 0x10) ? c1 : c0;
+            dst[4] = (bitmap & 0x08) ? c1 : c0;
+            dst[5] = (bitmap & 0x04) ? c1 : c0;
+            dst[6] = (bitmap & 0x02) ? c1 : c0;
+            dst[7] = (bitmap & 0x01) ? c1 : c0;
+            dst += 8;
         }
     }
 }

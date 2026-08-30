@@ -44,6 +44,8 @@ TEST_CASE("bitmap address differs for scanlines in the same cell")
     uint32_t pixels[ULA::SCREEN_WIDTH * ULA::SCREEN_HEIGHT];
     ula.renderFrame(pixels, ULA::SCREEN_WIDTH * 4);
     REQUIRE(pixels[0] != pixels[ULA::SCREEN_WIDTH]);
+    REQUIRE(pixels[0] == 0xFFCDCDCD); /* ink 7, bit7 set */
+    REQUIRE(pixels[1] == 0xFF000000); /* paper */
 }
 
 TEST_CASE("key 0 clears bit 0 on port 0xEFFE")
