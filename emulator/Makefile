@@ -89,13 +89,16 @@ verify: test
 	  echo "formal: cbmc not on PATH — skipped"; \
 	fi
 
+# clean and all must not share -j: parallel clean+all deletes the binary.
 release:
-	$(MAKE) $(BUILD_FLAGS) clean CXXFLAGS="$(CXXFLAGS_RELEASE)" \
+	$(MAKE) -s V=0 clean
+	$(MAKE) $(BUILD_FLAGS) CXXFLAGS="$(CXXFLAGS_RELEASE)" \
 		LDFLAGS="$(LDFLAGS_RELEASE)" all
 	@echo "Release binary built: $(TARGET)"
 
 profile:
-	$(MAKE) $(BUILD_FLAGS) clean \
+	$(MAKE) -s V=0 clean
+	$(MAKE) $(BUILD_FLAGS) \
 		CXXFLAGS="$(CXXFLAGS_COMMON) -DNDEBUG $(CXXFLAGS_OPTIMIZED) -g -pg -fno-inline" \
 		LDFLAGS="-pg $(LDFLAGS_COMMON)" all
 	@echo "Profile binary built: $(TARGET)"

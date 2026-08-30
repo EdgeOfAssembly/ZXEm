@@ -200,6 +200,46 @@ static bool load_game_spec(const std::string& spec)
     return true;
 }
 
+static uint8_t g_key_sticky[8][5];
+
+static void sticky_press(int row, int bit)
+{
+    if (row < 0 || row > 7 || bit < 0 || bit > 4)
+    {
+        return;
+    }
+    g_key_sticky[row][bit] = 4;
+    ula.setKey(row, bit, true);
+}
+
+static void sticky_decay()
+{
+    for (int row = 0; row < 8; row++)
+    {
+        for (int bit = 0; bit < 5; bit++)
+        {
+            if (g_key_sticky[row][bit] == 0)
+            {
+                continue;
+            }
+            ula.setKey(row, bit, true);
+            g_key_sticky[row][bit]--;
+        }
+    }
+}
+
+static void matrix_key(int row, int bit, bool pressed)
+{
+    if (pressed)
+    {
+        sticky_press(row, bit);
+    }
+    else
+    {
+        ula.setKey(row, bit, false);
+    }
+}
+
 static void handle_key(SDL_Keycode key, bool pressed)
 {
     switch (key)
@@ -255,53 +295,63 @@ static void handle_key(SDL_Keycode key, bool pressed)
             break;
 
         case SDLK_LSHIFT:
-        case SDLK_RSHIFT: ula.setKey(0, 0, pressed); break;
-        case SDLK_z: ula.setKey(0, 1, pressed); break;
-        case SDLK_x: ula.setKey(0, 2, pressed); break;
-        case SDLK_c: ula.setKey(0, 3, pressed); break;
-        case SDLK_v: ula.setKey(0, 4, pressed); break;
+        case SDLK_RSHIFT: matrix_key(0, 0, pressed); break;
+        case SDLK_z: matrix_key(0, 1, pressed); break;
+        case SDLK_x: matrix_key(0, 2, pressed); break;
+        case SDLK_c: matrix_key(0, 3, pressed); break;
+        case SDLK_v: matrix_key(0, 4, pressed); break;
 
-        case SDLK_a: ula.setKey(1, 0, pressed); break;
-        case SDLK_s: ula.setKey(1, 1, pressed); break;
-        case SDLK_d: ula.setKey(1, 2, pressed); break;
-        case SDLK_f: ula.setKey(1, 3, pressed); break;
-        case SDLK_g: ula.setKey(1, 4, pressed); break;
+        case SDLK_a: matrix_key(1, 0, pressed); break;
+        case SDLK_s: matrix_key(1, 1, pressed); break;
+        case SDLK_d: matrix_key(1, 2, pressed); break;
+        case SDLK_f: matrix_key(1, 3, pressed); break;
+        case SDLK_g: matrix_key(1, 4, pressed); break;
 
-        case SDLK_q: ula.setKey(2, 0, pressed); break;
-        case SDLK_w: ula.setKey(2, 1, pressed); break;
-        case SDLK_e: ula.setKey(2, 2, pressed); break;
-        case SDLK_r: ula.setKey(2, 3, pressed); break;
-        case SDLK_t: ula.setKey(2, 4, pressed); break;
+        case SDLK_q: matrix_key(2, 0, pressed); break;
+        case SDLK_w: matrix_key(2, 1, pressed); break;
+        case SDLK_e: matrix_key(2, 2, pressed); break;
+        case SDLK_r: matrix_key(2, 3, pressed); break;
+        case SDLK_t: matrix_key(2, 4, pressed); break;
 
-        case SDLK_1: ula.setKey(3, 0, pressed); break;
-        case SDLK_2: ula.setKey(3, 1, pressed); break;
-        case SDLK_3: ula.setKey(3, 2, pressed); break;
-        case SDLK_4: ula.setKey(3, 3, pressed); break;
-        case SDLK_5: ula.setKey(3, 4, pressed); break;
+        case SDLK_1:
+        case SDLK_KP_1: matrix_key(3, 0, pressed); break;
+        case SDLK_2:
+        case SDLK_KP_2: matrix_key(3, 1, pressed); break;
+        case SDLK_3:
+        case SDLK_KP_3: matrix_key(3, 2, pressed); break;
+        case SDLK_4:
+        case SDLK_KP_4: matrix_key(3, 3, pressed); break;
+        case SDLK_5:
+        case SDLK_KP_5: matrix_key(3, 4, pressed); break;
 
-        case SDLK_0: ula.setKey(4, 0, pressed); break;
-        case SDLK_9: ula.setKey(4, 1, pressed); break;
-        case SDLK_8: ula.setKey(4, 2, pressed); break;
-        case SDLK_7: ula.setKey(4, 3, pressed); break;
-        case SDLK_6: ula.setKey(4, 4, pressed); break;
+        case SDLK_0:
+        case SDLK_KP_0: matrix_key(4, 0, pressed); break;
+        case SDLK_9:
+        case SDLK_KP_9: matrix_key(4, 1, pressed); break;
+        case SDLK_8:
+        case SDLK_KP_8: matrix_key(4, 2, pressed); break;
+        case SDLK_7:
+        case SDLK_KP_7: matrix_key(4, 3, pressed); break;
+        case SDLK_6:
+        case SDLK_KP_6: matrix_key(4, 4, pressed); break;
 
-        case SDLK_p: ula.setKey(5, 0, pressed); break;
-        case SDLK_o: ula.setKey(5, 1, pressed); break;
-        case SDLK_i: ula.setKey(5, 2, pressed); break;
-        case SDLK_u: ula.setKey(5, 3, pressed); break;
-        case SDLK_y: ula.setKey(5, 4, pressed); break;
+        case SDLK_p: matrix_key(5, 0, pressed); break;
+        case SDLK_o: matrix_key(5, 1, pressed); break;
+        case SDLK_i: matrix_key(5, 2, pressed); break;
+        case SDLK_u: matrix_key(5, 3, pressed); break;
+        case SDLK_y: matrix_key(5, 4, pressed); break;
 
-        case SDLK_RETURN: ula.setKey(6, 0, pressed); break;
-        case SDLK_l: ula.setKey(6, 1, pressed); break;
-        case SDLK_k: ula.setKey(6, 2, pressed); break;
-        case SDLK_j: ula.setKey(6, 3, pressed); break;
-        case SDLK_h: ula.setKey(6, 4, pressed); break;
+        case SDLK_RETURN: matrix_key(6, 0, pressed); break;
+        case SDLK_l: matrix_key(6, 1, pressed); break;
+        case SDLK_k: matrix_key(6, 2, pressed); break;
+        case SDLK_j: matrix_key(6, 3, pressed); break;
+        case SDLK_h: matrix_key(6, 4, pressed); break;
 
-        case SDLK_SPACE: ula.setKey(7, 0, pressed); break;
-        case SDLK_PERIOD: ula.setKey(7, 1, pressed); break;
-        case SDLK_m: ula.setKey(7, 2, pressed); break;
-        case SDLK_n: ula.setKey(7, 3, pressed); break;
-        case SDLK_b: ula.setKey(7, 4, pressed); break;
+        case SDLK_SPACE: matrix_key(7, 0, pressed); break;
+        case SDLK_PERIOD: matrix_key(7, 1, pressed); break;
+        case SDLK_m: matrix_key(7, 2, pressed); break;
+        case SDLK_n: matrix_key(7, 3, pressed); break;
+        case SDLK_b: matrix_key(7, 4, pressed); break;
 
         case SDLK_LEFT:
             ula.setKempston(pressed ? static_cast<uint8_t>(ula.kempston | 0x02)
@@ -330,15 +380,11 @@ static void handle_key(SDL_Keycode key, bool pressed)
 }
 
 /**
- * @brief Spectrum matrix from SDL scancodes (layout-independent, includes keypad).
- *
- * Event KEYDOWN/UP can miss a tap if the window was not focused; the scancode
- * snapshot is applied every frame while a key is physically down.
+ * @brief OR scancodes into the matrix. Does not clear event/sticky presses.
  */
 static void apply_spectrum_keys()
 {
     const Uint8* ks = SDL_GetKeyboardState(nullptr);
-    std::memset(ula.keyboard, 0xFF, sizeof(ula.keyboard));
 
     struct Map
     {
@@ -387,7 +433,7 @@ static void apply_spectrum_keys()
         }
     }
 
-    uint8_t joy = 0;
+    uint8_t joy = ula.kempston;
     if (ks[SDL_SCANCODE_RIGHT])
     {
         joy |= 0x01;
@@ -409,6 +455,7 @@ static void apply_spectrum_keys()
         joy |= 0x10;
     }
     ula.setKempston(joy);
+    sticky_decay();
 }
 
 static void print_usage(const char* argv0)
@@ -981,6 +1028,10 @@ int main(int argc, char* argv[])
              z80.PC, z80.SP, g_model.c_str(), ula.is128 ? 1 : 0);
     printf("Loaded %s PC=0x%04X SP=0x%04X model=%s\n",
            g_game_path.c_str(), z80.PC, z80.SP, g_model.c_str());
+    if (!g_headless)
+    {
+        fprintf(stderr, "Click the ZXEm window, then press keys. Each press is logged as 'key down'.\n");
+    }
 
 #if defined(__SANITIZE_ADDRESS__)
     if (!g_headless)
@@ -1017,11 +1068,30 @@ int main(int argc, char* argv[])
                     case SDL_KEYDOWN:
                         if (!event.key.repeat)
                         {
+                            log_info("key down name=%s scancode=%s (%d) sdlk=%d",
+                                     SDL_GetKeyName(event.key.keysym.sym),
+                                     SDL_GetScancodeName(event.key.keysym.scancode),
+                                     static_cast<int>(event.key.keysym.scancode),
+                                     static_cast<int>(event.key.keysym.sym));
                             handle_key(event.key.keysym.sym, true);
                         }
                         break;
                     case SDL_KEYUP:
+                        log_info("key up   name=%s scancode=%s (%d)",
+                                 SDL_GetKeyName(event.key.keysym.sym),
+                                 SDL_GetScancodeName(event.key.keysym.scancode),
+                                 static_cast<int>(event.key.keysym.scancode));
                         handle_key(event.key.keysym.sym, false);
+                        break;
+                    case SDL_WINDOWEVENT:
+                        if (event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED)
+                        {
+                            log_info("window focus gained");
+                        }
+                        else if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST)
+                        {
+                            log_info("window focus lost — click the ZXEm window, then press 1 then 0");
+                        }
                         break;
                     case SDL_JOYBUTTONDOWN:
                         handle_joy_button(event.jbutton.button, true);
