@@ -44,3 +44,4 @@ opencode.jsonc
 session-ses_*.md
 emulator/batch_test_log.json
 /tests/
+gmon.out
