@@ -40,7 +40,7 @@ def test_version_flags() -> None:
     for flag in ("-v", "--version"):
         p = run([flag])
         assert p.returncode == 0, flag
-        assert "zxem 0.2" in p.stdout
+        assert "zxem 0.3" in p.stdout
         assert "verbose" not in p.stdout.lower() or "0.2" in p.stdout
 
 

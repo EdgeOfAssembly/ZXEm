@@ -3,7 +3,7 @@
 SDL2 ZX Spectrum 48K/128K emulator. Loads the World of Spectrum-style
 collection from the filesystem **or from a zip archive in-place** (no extract).
 
-Version **0.2**.
+Version **0.3**.
 
 ## Build
 
@@ -22,7 +22,7 @@ zxem [options] [input…]
 ```
 
 No arguments prints usage (same as `-h` / `--help`). `-v` / `--version`
-prints `zxem 0.2`. Options and inputs may be interleaved.
+prints `zxem 0.3`. Options and inputs may be interleaved.
 
 ```bash
 ./zxem /path/to/game.z80
@@ -39,7 +39,7 @@ prints `zxem 0.2`. Options and inputs may be interleaved.
 | Flag | Default | Meaning |
 |------|---------|---------|
 | `-h`, `--help` | | Usage |
-| `-v`, `--version` | | `zxem 0.2` (never verbose) |
+| `-v`, `--version` | | `zxem 0.3` (never verbose) |
 | `--list` | off | List playable files in a dir/zip to stdout |
 | `--member NAME` | | Substring match inside a zip (prefers snapshots) |
 | `--model MODEL` | spectrum48 | `spectrum48` or `spectrum128` |

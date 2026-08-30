@@ -147,6 +147,36 @@ uint16_t Z80::add16(uint16_t a, uint16_t b) {
     return (uint16_t)result;
 }
 
+uint16_t Z80::adc16(uint16_t a, uint16_t b)
+{
+    const int c = (F & 1) ? 1 : 0;
+    const int result = a + b + c;
+    F = 0;
+    setFlagS(static_cast<uint8_t>(result >> 8));
+    setFlagZ(static_cast<uint8_t>((result & 0xFFFF) == 0 ? 0 : 1));
+    setFlagH(((a & 0x0FFF) + (b & 0x0FFF) + c) > 0x0FFF);
+    setFlagPV(((a ^ result) & (b ^ result) & 0x8000) != 0);
+    setFlagN(false);
+    setFlagC(result > 0xFFFF);
+    setFlag53(static_cast<uint8_t>(result >> 8));
+    return static_cast<uint16_t>(result);
+}
+
+uint16_t Z80::sbc16(uint16_t a, uint16_t b)
+{
+    const int c = (F & 1) ? 1 : 0;
+    const int result = a - b - c;
+    F = 0;
+    setFlagS(static_cast<uint8_t>(result >> 8));
+    setFlagZ(static_cast<uint8_t>((result & 0xFFFF) == 0 ? 0 : 1));
+    setFlagH(((a & 0x0FFF) - (b & 0x0FFF) - c) < 0);
+    setFlagPV(((a ^ b) & (a ^ result) & 0x8000) != 0);
+    setFlagN(true);
+    setFlagC(result < 0);
+    setFlag53(static_cast<uint8_t>(result >> 8));
+    return static_cast<uint16_t>(result);
+}
+
 uint8_t Z80::rlc(uint8_t v) {
     bool c = (v & 0x80) != 0;
     uint8_t r = (v << 1) | (c ? 1 : 0);
@@ -255,7 +285,6 @@ int Z80::execute() {
 
     if (halted) {
         tstates += 4;
-        ula->step(4);
         return 4;
     }
 
@@ -279,7 +308,7 @@ int Z80::execute() {
         case 0x05: B = dec8(B); break;
         case 0x06: B = fetch8(); base_t = 7; break;
         case 0x07: { bool c = (A & 0x80) != 0; A = (A << 1) | (c ? 1 : 0); F = (F & 0xEC) | (c ? 1 : 0); setFlag53(A); } break;
-        case 0x08: { uint16_t v = fetch16(); memWrite(v, (uint8_t)(getAF() & 0xFF)); memWrite(v + 1, (uint8_t)(getAF() >> 8)); base_t = 20; } break;
+        case 0x08: { uint8_t ta = A; uint8_t tf = F; A = A_; F = F_; A_ = ta; F_ = tf; } break;
         case 0x09: setHL(add16(getHL(), getBC())); base_t = 11; break;
         case 0x0A: A = memRead(getBC()); base_t = 7; break;
         case 0x0B: setBC(getBC() - 1); base_t = 6; break;
@@ -288,7 +317,7 @@ int Z80::execute() {
         case 0x0E: C = fetch8(); base_t = 7; break;
         case 0x0F: { bool c = (A & 0x01) != 0; A = (A >> 1) | (c ? 0x80 : 0); F = (F & 0xEC) | (c ? 1 : 0); setFlag53(A); } break;
 
-        case 0x10: { int8_t d = (int8_t)fetch8(); B = dec8(B); if (B != 0) { PC += d; base_t = 13; } else base_t = 8; } break;
+        case 0x10: { int8_t d = (int8_t)fetch8(); B = static_cast<uint8_t>(B - 1); if (B != 0) { PC = static_cast<uint16_t>(PC + d); base_t = 13; } else base_t = 8; } break;
         case 0x11: setDE(fetch16()); base_t = 10; break;
         case 0x12: memWrite(getDE(), A); base_t = 7; break;
         case 0x13: setDE(getDE() + 1); base_t = 6; break;
@@ -496,7 +525,7 @@ int Z80::execute() {
         case 0xC8: if (F & 0x40) { PC = memRead(SP) | ((uint16_t)memRead(SP + 1) << 8); SP += 2; base_t = 11; } else base_t = 5; break;
         case 0xC9: PC = memRead(SP) | ((uint16_t)memRead(SP + 1) << 8); SP += 2; base_t = 10; break;
         case 0xCA: { uint16_t a = fetch16(); if (F & 0x40) { PC = a; } base_t = 10; } break;
-        case 0xCB: op_CB(); return tstates;
+        case 0xCB: return op_CB();
         case 0xCC: { uint16_t a = fetch16(); if (F & 0x40) { memWrite(--SP, (uint8_t)(PC >> 8)); memWrite(--SP, (uint8_t)(PC & 0xFF)); PC = a; base_t = 17; } else base_t = 10; } break;
         case 0xCD: { uint16_t a = fetch16(); memWrite(--SP, (uint8_t)(PC >> 8)); memWrite(--SP, (uint8_t)(PC & 0xFF)); PC = a; base_t = 17; } break;
         case 0xCE: A = add8(A, fetch8(), true); base_t = 7; break;
@@ -511,11 +540,11 @@ int Z80::execute() {
         case 0xD6: A = sub8(A, fetch8(), false); base_t = 7; break;
         case 0xD7: { memWrite(--SP, (uint8_t)(PC >> 8)); memWrite(--SP, (uint8_t)(PC & 0xFF)); PC = 0x0010; base_t = 11; } break;
         case 0xD8: if (F & 0x01) { PC = memRead(SP) | ((uint16_t)memRead(SP + 1) << 8); SP += 2; base_t = 11; } else base_t = 5; break;
-        case 0xD9: { uint16_t v = getAF(); setAF(getAF_()); setAF_(v); v = getBC(); setBC(getBC_()); setBC_(v); v = getDE(); setDE(getDE_()); setDE_(v); v = getHL(); setHL(getHL_()); setHL_(v); } break;
+        case 0xD9: { uint16_t v = getBC(); setBC(getBC_()); setBC_(v); v = getDE(); setDE(getDE_()); setDE_(v); v = getHL(); setHL(getHL_()); setHL_(v); } break;
         case 0xDA: { uint16_t a = fetch16(); if (F & 0x01) { PC = a; } base_t = 10; } break;
         case 0xDB: { uint8_t p = fetch8(); A = ioRead(((uint16_t)A << 8) | p); base_t = 11; } break;
         case 0xDC: { uint16_t a = fetch16(); if (F & 0x01) { memWrite(--SP, (uint8_t)(PC >> 8)); memWrite(--SP, (uint8_t)(PC & 0xFF)); PC = a; base_t = 17; } else base_t = 10; } break;
-        case 0xDD: op_DD(); return tstates;
+        case 0xDD: return op_DD();
         case 0xDE: A = sub8(A, fetch8(), true); base_t = 7; break;
         case 0xDF: { memWrite(--SP, (uint8_t)(PC >> 8)); memWrite(--SP, (uint8_t)(PC & 0xFF)); PC = 0x0018; base_t = 11; } break;
 
@@ -532,7 +561,7 @@ int Z80::execute() {
         case 0xEA: { uint16_t a = fetch16(); if (F & 0x04) { PC = a; } base_t = 10; } break;
         case 0xEB: { uint16_t v = getDE(); setDE(getHL()); setHL(v); } break;
         case 0xEC: { uint16_t a = fetch16(); if (F & 0x04) { memWrite(--SP, (uint8_t)(PC >> 8)); memWrite(--SP, (uint8_t)(PC & 0xFF)); PC = a; base_t = 17; } else base_t = 10; } break;
-        case 0xED: op_ED(); return tstates;
+        case 0xED: return op_ED();
         case 0xEE: xor8(fetch8()); base_t = 7; break;
         case 0xEF: { memWrite(--SP, (uint8_t)(PC >> 8)); memWrite(--SP, (uint8_t)(PC & 0xFF)); PC = 0x0028; base_t = 11; } break;
 
@@ -549,60 +578,59 @@ int Z80::execute() {
         case 0xFA: { uint16_t a = fetch16(); if (F & 0x80) { PC = a; } base_t = 10; } break;
         case 0xFB: ei_pending = true; break;
         case 0xFC: { uint16_t a = fetch16(); if (F & 0x80) { memWrite(--SP, (uint8_t)(PC >> 8)); memWrite(--SP, (uint8_t)(PC & 0xFF)); PC = a; base_t = 17; } else base_t = 10; } break;
-        case 0xFD: op_FD(); return tstates;
+        case 0xFD: return op_FD();
         case 0xFE: cp8(fetch8()); base_t = 7; break;
         case 0xFF: { memWrite(--SP, (uint8_t)(PC >> 8)); memWrite(--SP, (uint8_t)(PC & 0xFF)); PC = 0x0038; base_t = 11; } break;
     }
 
     tstates += base_t;
-    ula->step(base_t);
     return base_t;
 }
 
-void Z80::op_ED() {
+int Z80::op_ED() {
     uint8_t op = fetch8();
     int base_t = 4;
 
     switch (op) {
         case 0x40: B = ioRead(getBC()); F = (F & 0x01); setFlagSZP(B); setFlag53(B); base_t = 12; break;
         case 0x41: ioWrite(getBC(), B); base_t = 12; break;
-        case 0x42: { uint16_t v = getHL(); setHL(v - 1); sub8(A, memRead(getBC()), false); if (F & 0x40) { PC -= 2; } base_t = 16; } break;
+        case 0x42: setHL(sbc16(getHL(), getBC())); base_t = 15; break;
         case 0x43: { uint16_t a = fetch16(); memWrite(a, C); memWrite(a + 1, B); base_t = 20; } break;
-        case 0x44: A = sub8(A, 0, false); break;
+        case 0x44: A = sub8(0, A, false); base_t = 8; break;
         case 0x45: { PC = memRead(SP) | ((uint16_t)memRead(SP + 1) << 8); SP += 2; IFF1 = IFF2; base_t = 14; } break;
         case 0x46: IM = 0; base_t = 8; break;
         case 0x47: I = A; base_t = 9; break;
         case 0x48: C = ioRead(getBC()); F = (F & 0x01); setFlagSZP(C); setFlag53(C); base_t = 12; break;
         case 0x49: ioWrite(getBC(), C); base_t = 12; break;
-        case 0x4A: { uint16_t v = getHL(); setHL(v - 1); sub8(A, memRead(getBC()), true); if (F & 0x40) { PC -= 2; } base_t = 16; } break;
+        case 0x4A: setHL(adc16(getHL(), getBC())); base_t = 15; break;
         case 0x4B: { uint16_t a = fetch16(); C = memRead(a); B = memRead(a + 1); base_t = 20; } break;
-        case 0x4C: A = sub8(A, 0, true); break;
-        case 0x4D: { PC = memRead(SP) | ((uint16_t)memRead(SP + 1) << 8); SP += 2; base_t = 14; } break;
+        case 0x4C: A = sub8(0, A, false); base_t = 8; break;
+        case 0x4D: { PC = memRead(SP) | ((uint16_t)memRead(SP + 1) << 8); SP += 2; IFF1 = IFF2; base_t = 14; } break;
         case 0x4E: IM = 0; base_t = 8; break;
         case 0x4F: R = A; base_t = 9; break;
 
         case 0x50: D = ioRead(getBC()); F = (F & 0x01); setFlagSZP(D); setFlag53(D); base_t = 12; break;
         case 0x51: ioWrite(getBC(), D); base_t = 12; break;
-        case 0x52: { uint16_t v = getHL(); setHL(v - 1); sub8(A, memRead(getBC()), false); base_t = 16; } break;
+        case 0x52: setHL(sbc16(getHL(), getDE())); base_t = 15; break;
         case 0x53: { uint16_t a = fetch16(); memWrite(a, E); memWrite(a + 1, D); base_t = 20; } break;
-        case 0x54: A = sub8(A, 0, false); break;
+        case 0x54: A = sub8(0, A, false); base_t = 8; break;
         case 0x55: { PC = memRead(SP) | ((uint16_t)memRead(SP + 1) << 8); SP += 2; IFF1 = IFF2; base_t = 14; } break;
         case 0x56: IM = 1; base_t = 8; break;
         case 0x57: A = I; F = (F & 0x01); setFlagSZ(A); setFlagPV(IFF2); setFlag53(A); base_t = 9; break;
         case 0x58: E = ioRead(getBC()); F = (F & 0x01); setFlagSZP(E); setFlag53(E); base_t = 12; break;
         case 0x59: ioWrite(getBC(), E); base_t = 12; break;
-        case 0x5A: { uint16_t v = getHL(); setHL(v - 1); sub8(A, memRead(getBC()), true); base_t = 16; } break;
+        case 0x5A: setHL(adc16(getHL(), getDE())); base_t = 15; break;
         case 0x5B: { uint16_t a = fetch16(); E = memRead(a); D = memRead(a + 1); base_t = 20; } break;
-        case 0x5C: A = sub8(A, 0, true); break;
+        case 0x5C: A = sub8(0, A, false); base_t = 8; break;
         case 0x5D: { PC = memRead(SP) | ((uint16_t)memRead(SP + 1) << 8); SP += 2; base_t = 14; } break;
         case 0x5E: IM = 2; base_t = 8; break;
-        case 0x5F: R = A; base_t = 9; break;
+        case 0x5F: A = R; F = static_cast<uint8_t>(F & 0x01); setFlagSZ(A); setFlagPV(IFF2); setFlag53(A); base_t = 9; break;
 
         case 0x60: H = ioRead(getBC()); F = (F & 0x01); setFlagSZP(H); setFlag53(H); base_t = 12; break;
         case 0x61: ioWrite(getBC(), H); base_t = 12; break;
-        case 0x62: { uint16_t v = getHL(); setHL(v - 1); sub8(A, memRead(getBC()), false); base_t = 16; } break;
+        case 0x62: setHL(sbc16(getHL(), getHL())); base_t = 15; break;
         case 0x63: { uint16_t a = fetch16(); memWrite(a, L); memWrite(a + 1, H); base_t = 20; } break;
-        case 0x64: A = sub8(A, 0, false); break;
+        case 0x64: A = sub8(0, A, false); base_t = 8; break;
         case 0x65: { PC = memRead(SP) | ((uint16_t)memRead(SP + 1) << 8); SP += 2; IFF1 = IFF2; base_t = 14; } break;
         case 0x66: IM = 0; base_t = 8; break;
         case 0x67: { // RRD
@@ -617,9 +645,9 @@ void Z80::op_ED() {
         } break;
         case 0x68: L = ioRead(getBC()); F = (F & 0x01); setFlagSZP(L); setFlag53(L); base_t = 12; break;
         case 0x69: ioWrite(getBC(), L); base_t = 12; break;
-        case 0x6A: { uint16_t v = getHL(); setHL(v - 1); sub8(A, memRead(getBC()), true); base_t = 16; } break;
+        case 0x6A: setHL(adc16(getHL(), getHL())); base_t = 15; break;
         case 0x6B: { uint16_t a = fetch16(); L = memRead(a); H = memRead(a + 1); base_t = 20; } break;
-        case 0x6C: A = sub8(A, 0, true); break;
+        case 0x6C: A = sub8(0, A, false); base_t = 8; break;
         case 0x6D: { PC = memRead(SP) | ((uint16_t)memRead(SP + 1) << 8); SP += 2; base_t = 14; } break;
         case 0x6E: IM = 0; base_t = 8; break;
         case 0x6F: { // RLD
@@ -635,17 +663,17 @@ void Z80::op_ED() {
 
         case 0x70: { uint8_t v = ioRead(getBC()); F = (F & 0x01); setFlagSZP(v); setFlag53(v); base_t = 12; } break;
         case 0x71: ioWrite(getBC(), 0); base_t = 12; break;
-        case 0x72: { uint16_t v = getHL(); setHL(v - 1); sub8(A, memRead(getBC()), false); if (F & 0x40) { PC -= 2; } base_t = 16; } break;
+        case 0x72: setHL(sbc16(getHL(), SP)); base_t = 15; break;
         case 0x73: { uint16_t a = fetch16(); memWrite(a, (uint8_t)(SP & 0xFF)); memWrite(a + 1, (uint8_t)(SP >> 8)); base_t = 20; } break;
-        case 0x74: A = sub8(A, 0, false); break;
+        case 0x74: A = sub8(0, A, false); base_t = 8; break;
         case 0x75: { PC = memRead(SP) | ((uint16_t)memRead(SP + 1) << 8); SP += 2; IFF1 = IFF2; base_t = 14; } break;
         case 0x76: IM = 1; base_t = 8; break;
         case 0x77: A = I; F = (F & 0x01); setFlagSZ(A); setFlagPV(IFF2); setFlag53(A); base_t = 9; break;
         case 0x78: A = ioRead(getBC()); F = (F & 0x01); setFlagSZP(A); setFlag53(A); base_t = 12; break;
         case 0x79: ioWrite(getBC(), A); base_t = 12; break;
-        case 0x7A: { uint16_t v = getHL(); setHL(v - 1); sub8(A, memRead(getBC()), true); if (F & 0x40) { PC -= 2; } base_t = 16; } break;
+        case 0x7A: setHL(adc16(getHL(), SP)); base_t = 15; break;
         case 0x7B: { uint16_t a = fetch16(); SP = memRead(a) | ((uint16_t)memRead(a + 1) << 8); base_t = 20; } break;
-        case 0x7C: A = sub8(A, 0, true); break;
+        case 0x7C: A = sub8(0, A, false); base_t = 8; break;
         case 0x7D: { PC = memRead(SP) | ((uint16_t)memRead(SP + 1) << 8); SP += 2; base_t = 14; } break;
         case 0x7E: IM = 2; base_t = 8; break;
         case 0x7F: R = A; base_t = 9; break;
@@ -823,10 +851,10 @@ void Z80::op_ED() {
     }
 
     tstates += base_t;
-    ula->step(base_t);
+    return base_t;
 }
 
-void Z80::op_CB() {
+int Z80::op_CB() {
     uint8_t op = fetch8();
     int base_t = 8;
 
@@ -1105,17 +1133,16 @@ void Z80::op_CB() {
     }
 
     tstates += base_t;
-    ula->step(base_t);
+    return base_t;
 }
 
-void Z80::op_DD() {
+int Z80::op_DD() {
     uint8_t op = fetch8();
     int base_t = 4;
 
     if (op == 0xCB) {
         uint8_t d = fetch8();
-        op_DDCB(d);
-        return;
+        return op_DDCB(d);
     }
 
     switch (op) {
@@ -1160,23 +1187,21 @@ void Z80::op_DD() {
         case 0xF9: SP = IX; base_t = 10; break;
         default: {
             PC--;
-            execute();
-            return;
+            return execute();
         }
     }
 
     tstates += base_t;
-    ula->step(base_t);
+    return base_t;
 }
 
-void Z80::op_FD() {
+int Z80::op_FD() {
     uint8_t op = fetch8();
     int base_t = 4;
 
     if (op == 0xCB) {
         uint8_t d = fetch8();
-        op_FDCB(d);
-        return;
+        return op_FDCB(d);
     }
 
     switch (op) {
@@ -1221,16 +1246,15 @@ void Z80::op_FD() {
         case 0xF9: SP = IY; base_t = 10; break;
         default: {
             PC--;
-            execute();
-            return;
+            return execute();
         }
     }
 
     tstates += base_t;
-    ula->step(base_t);
+    return base_t;
 }
 
-void Z80::op_DDCB(uint8_t d) {
+int Z80::op_DDCB(uint8_t d) {
     uint8_t op = fetch8();
     uint16_t addr = IX + (int8_t)d;
     int base_t = 23;
@@ -1272,10 +1296,10 @@ void Z80::op_DDCB(uint8_t d) {
     }
 
     tstates += base_t;
-    ula->step(base_t);
+    return base_t;
 }
 
-void Z80::op_FDCB(uint8_t d) {
+int Z80::op_FDCB(uint8_t d) {
     uint8_t op = fetch8();
     uint16_t addr = IY + (int8_t)d;
     int base_t = 23;
@@ -1317,5 +1341,5 @@ void Z80::op_FDCB(uint8_t d) {
     }
 
     tstates += base_t;
-    ula->step(base_t);
+    return base_t;
 }

@@ -55,7 +55,7 @@ public:
     void setFlagPV(bool pv) { if (pv) F |= 0x04; else F &= ~0x04; }
     void setFlagN(bool n) { if (n) F |= 0x02; else F &= ~0x02; }
     void setFlagC(bool c) { if (c) F |= 0x01; else F &= ~0x01; }
-    void setFlag53(uint8_t v) { F = (F & 0x28) | (v & 0x28); }
+    void setFlag53(uint8_t v) { F = static_cast<uint8_t>((F & ~0x28) | (v & 0x28)); }
     void setFlagSZ(uint8_t v) { setFlagS(v); setFlagZ(v); }
     void setFlagSZP(uint8_t v) { setFlagS(v); setFlagZ(v); setFlagPV(parity(v)); }
 
@@ -64,12 +64,12 @@ public:
     int execute();
 
 private:
-    void op_ED();
-    void op_CB();
-    void op_DD();
-    void op_FD();
-    void op_DDCB(uint8_t d);
-    void op_FDCB(uint8_t d);
+    int op_ED();
+    int op_CB();
+    int op_DD();
+    int op_FD();
+    int op_DDCB(uint8_t d);
+    int op_FDCB(uint8_t d);
 
     uint8_t add8(uint8_t a, uint8_t b, bool carry);
     uint8_t sub8(uint8_t a, uint8_t b, bool carry);
@@ -80,6 +80,8 @@ private:
     void or8(uint8_t v);
     void cp8(uint8_t v);
     uint16_t add16(uint16_t a, uint16_t b);
+    uint16_t adc16(uint16_t a, uint16_t b);
+    uint16_t sbc16(uint16_t a, uint16_t b);
 
     uint8_t rlc(uint8_t v);
     uint8_t rrc(uint8_t v);
