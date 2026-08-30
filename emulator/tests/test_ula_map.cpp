@@ -46,6 +46,18 @@ TEST_CASE("bitmap address differs for scanlines in the same cell")
     REQUIRE(pixels[0] != pixels[ULA::SCREEN_WIDTH]);
 }
 
+TEST_CASE("key 0 clears bit 0 on port 0xEFFE")
+{
+    ULA ula;
+    ula.reset();
+    REQUIRE((ula.ioRead(0xEFFE) & 0x01) != 0);
+    ula.setKey(4, 0, true);
+    REQUIRE((ula.ioRead(0xEFFE) & 0x01) == 0);
+    REQUIRE((ula.ioRead(0xEFFE) & 0x1E) == 0x1E);
+    ula.setKey(4, 0, false);
+    REQUIRE((ula.ioRead(0xEFFE) & 0x01) != 0);
+}
+
 TEST_CASE("ULA::step bulk-advances a full line and frame wrap")
 {
     ULA ula;

@@ -22,6 +22,9 @@ because one Spectrum frame can take much more than 20 ms of host time. Use
 on the release binary (selected once at startup; the fast path has no per-opcode
 log check).
 
+Click the ZXEm window so it has keyboard focus. Number-row and keypad `0`–`9`
+both map to the Spectrum keys (Knight Lore: **1** keyboard, then **0** start).
+
 ## Run
 
 ```text

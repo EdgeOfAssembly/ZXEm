@@ -1,6 +1,7 @@
 #include "media.h"
 #include "snapshot.h"
 #include "ula.h"
+#include "vfs.h"
 #include "z80.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -210,6 +211,55 @@ TEST_CASE("SPG unpacked maps a page and PC")
     REQUIRE(media_load(b, z80, ula));
     REQUIRE(z80.PC == 0xC000);
     REQUIRE(ula.read(0xC000) == 0xC9);
+}
+
+TEST_CASE("Knight Lore SNA starts when key 0 is held")
+{
+    VfsBlob blob;
+    const char* path =
+        "/mnt/games/Knight Lore/Knight Lore (1984)(Ultimate Play The Game).sna";
+    if (!vfs_read(path, blob))
+    {
+        SKIP("Knight Lore SNA not mounted");
+    }
+    Z80 z80;
+    ULA ula;
+    z80.ula = &ula;
+    ula.reset();
+    (void)load_rom_file("/usr/share/fuse/48.rom", ula);
+    REQUIRE(media_load(blob, z80, ula));
+
+    auto run_frames = [&](int frames) {
+        for (int f = 0; f < frames; f++)
+        {
+            int ts = 0;
+            while (ts < 69888)
+            {
+                const int t = z80.execute();
+                ula.step(t);
+                ts += t;
+                if (ula.frame_tstates >= 69888)
+                {
+                    ula.frame_tstates -= 69888;
+                }
+            }
+        }
+    };
+
+    run_frames(20);
+    const uint8_t before = ula.read(0x5BA0);
+    ula.setKey(4, 0, true);
+    /* One IN A,(0xFE) with A=0xEF must see bit 0 clear. */
+    REQUIRE((ula.ioRead(0xEFFE) & 0x01) == 0);
+    run_frames(8);
+    const uint8_t held = ula.read(0x5BA0);
+    const uint16_t pc_held = z80.PC;
+    run_frames(40);
+    const uint8_t after = ula.read(0x5BA0);
+    /* 5BA0 increments every menu pass while 0 is up; RET NZ on 0 stops that. */
+    REQUIRE(before > 0);
+    REQUIRE(after == held);
+    REQUIRE((pc_held < 0xBD20 || pc_held > 0xBEB2));
 }
 
 TEST_CASE("IPF is detected but not loaded")

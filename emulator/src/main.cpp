@@ -33,7 +33,10 @@ extern "C" const char* __lsan_default_suppressions(void)
         "leak:libsystemd.so\n"
         "leak:libpipewire-\n"
         "leak:libglib-2.0.so\n"
-        "leak:libgio-2.0.so\n";
+        "leak:libgio-2.0.so\n"
+        "leak:libSDL2\n"
+        "leak:libzip.so\n"
+        "leak:libz.so\n";
 }
 #endif
 
@@ -324,6 +327,88 @@ static void handle_key(SDL_Keycode key, bool pressed)
         default:
             break;
     }
+}
+
+/**
+ * @brief Spectrum matrix from SDL scancodes (layout-independent, includes keypad).
+ *
+ * Event KEYDOWN/UP can miss a tap if the window was not focused; the scancode
+ * snapshot is applied every frame while a key is physically down.
+ */
+static void apply_spectrum_keys()
+{
+    const Uint8* ks = SDL_GetKeyboardState(nullptr);
+    std::memset(ula.keyboard, 0xFF, sizeof(ula.keyboard));
+
+    struct Map
+    {
+        SDL_Scancode sc;
+        uint8_t row;
+        uint8_t bit;
+    };
+    static const Map kmap[] = {
+        {SDL_SCANCODE_LSHIFT, 0, 0}, {SDL_SCANCODE_RSHIFT, 0, 0},
+        {SDL_SCANCODE_Z, 0, 1}, {SDL_SCANCODE_X, 0, 2},
+        {SDL_SCANCODE_C, 0, 3}, {SDL_SCANCODE_V, 0, 4},
+        {SDL_SCANCODE_A, 1, 0}, {SDL_SCANCODE_S, 1, 1},
+        {SDL_SCANCODE_D, 1, 2}, {SDL_SCANCODE_F, 1, 3},
+        {SDL_SCANCODE_G, 1, 4},
+        {SDL_SCANCODE_Q, 2, 0}, {SDL_SCANCODE_W, 2, 1},
+        {SDL_SCANCODE_E, 2, 2}, {SDL_SCANCODE_R, 2, 3},
+        {SDL_SCANCODE_T, 2, 4},
+        {SDL_SCANCODE_1, 3, 0}, {SDL_SCANCODE_2, 3, 1},
+        {SDL_SCANCODE_3, 3, 2}, {SDL_SCANCODE_4, 3, 3},
+        {SDL_SCANCODE_5, 3, 4},
+        {SDL_SCANCODE_KP_1, 3, 0}, {SDL_SCANCODE_KP_2, 3, 1},
+        {SDL_SCANCODE_KP_3, 3, 2}, {SDL_SCANCODE_KP_4, 3, 3},
+        {SDL_SCANCODE_KP_5, 3, 4},
+        {SDL_SCANCODE_0, 4, 0}, {SDL_SCANCODE_9, 4, 1},
+        {SDL_SCANCODE_8, 4, 2}, {SDL_SCANCODE_7, 4, 3},
+        {SDL_SCANCODE_6, 4, 4},
+        {SDL_SCANCODE_KP_0, 4, 0}, {SDL_SCANCODE_KP_9, 4, 1},
+        {SDL_SCANCODE_KP_8, 4, 2}, {SDL_SCANCODE_KP_7, 4, 3},
+        {SDL_SCANCODE_KP_6, 4, 4},
+        {SDL_SCANCODE_P, 5, 0}, {SDL_SCANCODE_O, 5, 1},
+        {SDL_SCANCODE_I, 5, 2}, {SDL_SCANCODE_U, 5, 3},
+        {SDL_SCANCODE_Y, 5, 4},
+        {SDL_SCANCODE_RETURN, 6, 0}, {SDL_SCANCODE_KP_ENTER, 6, 0},
+        {SDL_SCANCODE_L, 6, 1}, {SDL_SCANCODE_K, 6, 2},
+        {SDL_SCANCODE_J, 6, 3}, {SDL_SCANCODE_H, 6, 4},
+        {SDL_SCANCODE_SPACE, 7, 0}, {SDL_SCANCODE_PERIOD, 7, 1},
+        {SDL_SCANCODE_LCTRL, 7, 1}, {SDL_SCANCODE_RCTRL, 7, 1},
+        {SDL_SCANCODE_M, 7, 2}, {SDL_SCANCODE_N, 7, 3},
+        {SDL_SCANCODE_B, 7, 4},
+    };
+    for (const Map& m : kmap)
+    {
+        if (ks[m.sc])
+        {
+            ula.setKey(m.row, m.bit, true);
+        }
+    }
+
+    uint8_t joy = 0;
+    if (ks[SDL_SCANCODE_RIGHT])
+    {
+        joy |= 0x01;
+    }
+    if (ks[SDL_SCANCODE_LEFT])
+    {
+        joy |= 0x02;
+    }
+    if (ks[SDL_SCANCODE_DOWN])
+    {
+        joy |= 0x04;
+    }
+    if (ks[SDL_SCANCODE_UP])
+    {
+        joy |= 0x08;
+    }
+    if (ks[SDL_SCANCODE_LALT] || ks[SDL_SCANCODE_RALT])
+    {
+        joy |= 0x10;
+    }
+    ula.setKempston(joy);
 }
 
 static void print_usage(const char* argv0)
@@ -810,6 +895,9 @@ int main(int argc, char* argv[])
         {
             init_audio();
         }
+        SDL_RaiseWindow(window);
+        SDL_SetWindowInputFocus(window);
+
         if (SDL_NumJoysticks() > 0)
         {
             joystick = SDL_JoystickOpen(0);
@@ -948,6 +1036,7 @@ int main(int argc, char* argv[])
                         break;
                 }
             }
+            apply_spectrum_keys();
         }
 
         int tstates_this_frame = 0;
