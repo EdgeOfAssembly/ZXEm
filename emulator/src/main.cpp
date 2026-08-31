@@ -9,11 +9,13 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <csignal>
 #include <sys/stat.h>
 #include <vector>
 
 #include "ay.h"
 #include "config.h"
+#include "hzlock.h"
 #include "log.h"
 #include "media.h"
 #include "snapshot.h"
@@ -60,6 +62,15 @@ static std::string g_config_path = "config.ini";
 static std::string g_model = "spectrum48";
 static std::string g_keymap = "spectrum";
 static bool g_no_system_rom = false;
+static bool g_no_hz_lock = false;
+static volatile sig_atomic_t g_exit_req = 0;
+
+extern "C" {
+static void zxem_on_signal(int)
+{
+    g_exit_req = 1;
+}
+}
 static std::string g_member;
 static std::string g_pok_path;
 static std::string g_log_file;
@@ -649,6 +660,7 @@ static void print_usage(const char* argv0)
             "      --rom FILE        Load a 16K/32K/64K ROM image\n"
             "      --rom-dir DIR     Search DIR for a ROM (default: ./rom)\n"
             "      --no-system-rom   Do not search /usr/share/fuse (default: search)\n"
+            "      --no-hz-lock      Do not switch the X11 output to 50 Hz PAL\n"
             "      --trdos-rom FILE  16K TR-DOS ROM (Beta Disk paging)\n"
             "      --plus3-rom FILE  64K +3 ROM, or a directory of plus3-0..3.rom\n"
             "      --config FILE     INI config (default: ./config.ini)\n"
@@ -901,6 +913,10 @@ int main(int argc, char* argv[])
         {
             g_no_system_rom = true;
         }
+        else if (strcmp(a, "--no-hz-lock") == 0)
+        {
+            g_no_hz_lock = true;
+        }
         else if (strncmp(a, "--rom-dir", 9) == 0)
         {
             if (!take_value(i, argc, argv, "--rom-dir", g_rom_dir))
@@ -1142,6 +1158,13 @@ int main(int argc, char* argv[])
         {
             log_debug("SDL_GL_SetSwapInterval(0): %s", SDL_GetError());
         }
+        if (!g_no_hz_lock)
+        {
+            std::atexit(hz_lock_restore);
+            std::signal(SIGINT, zxem_on_signal);
+            std::signal(SIGTERM, zxem_on_signal);
+            hz_lock_pal50();
+        }
         texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
                                     SDL_TEXTUREACCESS_STREAMING,
                                     ULA::SCREEN_WIDTH, ULA::SCREEN_HEIGHT);
@@ -1270,6 +1293,11 @@ int main(int argc, char* argv[])
 
     while (running)
     {
+        if (g_exit_req)
+        {
+            running = false;
+            break;
+        }
         if (!g_headless)
         {
             pump_input();
@@ -1374,6 +1402,7 @@ int main(int argc, char* argv[])
     {
         SDL_DestroyWindow(window);
     }
+    hz_lock_restore();
     SDL_Quit();
     return 0;
 }

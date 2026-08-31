@@ -3,7 +3,7 @@
 SDL2 ZX Spectrum 48K/128K emulator. Loads the World of Spectrum-style
 collection from the filesystem **or from a zip archive in-place** (no extract).
 
-Version **0.5**.
+Version **0.6**.
 
 ## Build
 
@@ -22,11 +22,14 @@ because one Spectrum frame can take much more than 20 ms of host time. Use
 on the release binary (selected once at startup; the fast path has no per-opcode
 log check).
 
-The 48K/128K ULA is **50 Hz PAL** (69 888 T-states/frame). ZXEm runs the machine
-at that rate even on a 60 Hz laptop so games and AY stay in time; the display
-may judder slightly. Do not clock the Z80 at 60 Hz (that is 20% fast). After
-debug looks right: `make -s profile`, play/headless a title, then
-`gprof -b ./zxem gmon.out`. Then `make -s release`.
+The 48K/128K/+3 ULA is **50 Hz PAL** (69 888 T-states/frame). The run loop also
+**sleeps** so one emulated picture takes 20 ms of real time (`SDL_Delay`) — that
+is software pacing, not the panel. On quit ZXEm restores the previous RandR
+mode. `--no-hz-lock` skips the panel switch (default: lock if a ~50 Hz mode
+exists at the current resolution). NTSC Spectrums are 60 Hz; we do not emulate
+those. Do not clock the Z80 at 60 Hz on PAL titles (20% fast).
+
+`make -s profile`, run a title, `gprof -b ./zxem gmon.out`, then `make -s release`.
 
 Click the ZXEm window so it has keyboard focus. Number-row and keypad `0`–`9`
 both map to the Spectrum keys (Knight Lore: **1** keyboard, then **0** start).
@@ -38,7 +41,7 @@ zxem [options] [input…]
 ```
 
 No arguments prints usage (same as `-h` / `--help`). `-v` / `--version`
-prints `zxem 0.5`. Options and inputs may be interleaved.
+prints `zxem 0.6`. Options and inputs may be interleaved.
 
 ```bash
 ./zxem /path/to/game.z80
@@ -55,7 +58,7 @@ prints `zxem 0.5`. Options and inputs may be interleaved.
 | Flag | Default | Meaning |
 |------|---------|---------|
 | `-h`, `--help` | | Usage |
-| `-v`, `--version` | | `zxem 0.5` (never verbose) |
+| `-v`, `--version` | | `zxem 0.6` (never verbose) |
 | `--list` | off | List playable files in a dir/zip to stdout |
 | `--member NAME` | | Substring match inside a zip (prefers snapshots) |
 | `--model MODEL` | spectrum48 | `spectrum48`, `spectrum128`, or `plus3` |

@@ -10,13 +10,15 @@ ZIP_CFLAGS := $(shell $(PKG_CONFIG) --cflags libzip)
 ZIP_LIBS   := $(shell $(PKG_CONFIG) --libs libzip)
 Z_CFLAGS   := $(shell $(PKG_CONFIG) --cflags zlib)
 Z_LIBS     := $(shell $(PKG_CONFIG) --libs zlib)
+XR_CFLAGS  := $(shell $(PKG_CONFIG) --cflags xrandr x11)
+XR_LIBS    := $(shell $(PKG_CONFIG) --libs xrandr x11)
 
 CXXFLAGS_COMMON := -std=gnu++23 -Wall -Wextra -Wpedantic -Wshadow \
 	-fno-omit-frame-pointer -ffunction-sections -fdata-sections \
-	$(SDL_CFLAGS) $(ZIP_CFLAGS) $(Z_CFLAGS) -I src
+	$(SDL_CFLAGS) $(ZIP_CFLAGS) $(Z_CFLAGS) $(XR_CFLAGS) -I src
 
 LDFLAGS_COMMON := -Wl,--push-state,--as-needed $(SDL_LIBS) $(ZIP_LIBS) $(Z_LIBS) \
-	-Wl,--pop-state -Wl,--gc-sections -Wl,-z,relro -Wl,-z,now
+	$(XR_LIBS) -Wl,--pop-state -Wl,--gc-sections -Wl,-z,relro -Wl,-z,now
 
 CXXFLAGS_DEBUG := $(CXXFLAGS_COMMON) -g3 -O0 \
 	-fsanitize=address,undefined -fno-omit-frame-pointer -rdynamic
@@ -36,8 +38,9 @@ OBJDIR := obj
 TARGET := zxem
 
 LIB_SRCS := $(SRCDIR)/ay.cpp $(SRCDIR)/config.cpp $(SRCDIR)/disk.cpp \
-	$(SRCDIR)/log.cpp $(SRCDIR)/media.cpp $(SRCDIR)/snapshot.cpp \
-	$(SRCDIR)/tape.cpp $(SRCDIR)/ula.cpp $(SRCDIR)/vfs.cpp $(SRCDIR)/z80.cpp
+	$(SRCDIR)/hzlock.cpp $(SRCDIR)/log.cpp $(SRCDIR)/media.cpp \
+	$(SRCDIR)/snapshot.cpp $(SRCDIR)/tape.cpp $(SRCDIR)/ula.cpp \
+	$(SRCDIR)/vfs.cpp $(SRCDIR)/z80.cpp
 MAIN_SRCS := $(SRCDIR)/main.cpp
 SRCS := $(LIB_SRCS) $(MAIN_SRCS)
 OBJS := $(patsubst $(SRCDIR)/%.cpp,$(OBJDIR)/%.o,$(SRCS))
