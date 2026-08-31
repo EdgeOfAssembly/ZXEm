@@ -4,6 +4,7 @@ obj/
 zxem
 tests/run_tests
 emulator/tests/run_tests
+AUDIT_REPORT.md
 emulator/zxem
 emulator/hz50test
 emulator/obj/
