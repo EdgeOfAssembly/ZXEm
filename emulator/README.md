@@ -3,7 +3,7 @@
 SDL2 ZX Spectrum 48K/128K emulator. Loads the World of Spectrum-style
 collection from the filesystem **or from a zip archive in-place** (no extract).
 
-Version **0.7**.
+Version **0.8**.
 
 ## Build
 
@@ -39,7 +39,7 @@ zxem [options] [input…]
 ```
 
 No arguments prints usage (same as `-h` / `--help`). `-v` / `--version`
-prints `zxem 0.7`. Options and inputs may be interleaved.
+prints `zxem 0.8`. Options and inputs may be interleaved.
 
 **Precedence:** CLI flags **always** win over INI (`--config` / `./config.ini`),
 which wins over compiled defaults. `--config` may appear anywhere on the
@@ -60,7 +60,7 @@ command line; remaining flags still override that file.
 | Flag | Default | Meaning |
 |------|---------|---------|
 | `-h`, `--help` | | Usage |
-| `-v`, `--version` | | `zxem 0.7` (never verbose) |
+| `-v`, `--version` | | `zxem 0.8` (never verbose) |
 | `--list` | off | List playable files in a dir/zip to stdout |
 | `--member NAME` | | Substring match inside a zip (prefers snapshots) |
 | `--model MODEL` | spectrum48 | `spectrum48`, `spectrum128`, or `plus3` |
@@ -81,6 +81,7 @@ command line; remaining flags still override that file.
 | `--trace-io` | off | Port I/O |
 | `--verbose` | | `--log-level debug` |
 | `--keymap NAME` | spectrum | `spectrum` (1:1) or `wasd` (WASD move, Left Ctrl jump/fire) |
+| `--issue 2\|3` | 3 | 48K port FE bits 5/7: Issue 3 always 1; Issue 2 = inverse of MIC |
 
 A zip or directory without `--member` lists playable images on **stdout**.
 

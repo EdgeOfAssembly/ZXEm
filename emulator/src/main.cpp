@@ -65,6 +65,8 @@ static std::string g_plus3_rom_path;
 static std::string g_config_path = "config.ini";
 static std::string g_model = "spectrum48";
 static std::string g_keymap = "spectrum";
+/** @brief 48K ULA issue: "2" or "3" (default 3). 128K/+3 always read as 3. */
+static std::string g_issue = "3";
 static bool g_no_system_rom = false;
 static volatile sig_atomic_t g_exit_req = 0;
 
@@ -719,6 +721,7 @@ static void print_usage(const char* argv0)
             "      --trace-cpu       Log every instruction (startup; default: off)\n"
             "      --trace-io        Log I/O ports (default: off)\n"
             "      --keymap NAME     spectrum (default) or wasd (WASD+LCtrl)\n"
+            "      --issue 2|3       48K ULA keyboard bits 5/7 (default: 3)\n"
             "      --verbose         Same as --log-level debug\n"
             "\n"
             "Formats: %s\n"
@@ -773,6 +776,10 @@ static void apply_config(const Config& cfg)
     if (cfg.has("input", "keymap"))
     {
         g_keymap = cfg.getString("input", "keymap", g_keymap);
+    }
+    if (cfg.has("hardware", "issue"))
+    {
+        g_issue = cfg.getString("hardware", "issue", g_issue);
     }
     if (cfg.has("video", "scale"))
     {
@@ -1021,6 +1028,13 @@ static int parse_cli(int argc, char** argv,
                 return 1;
             }
         }
+        else if (strncmp(a, "--issue", 7) == 0)
+        {
+            if (!take_value(i, argc, argv, "--issue", g_issue))
+            {
+                return 1;
+            }
+        }
         else if (strcmp(a, "--no-system-rom") == 0)
         {
             g_no_system_rom = true;
@@ -1240,6 +1254,31 @@ int main(int argc, char* argv[])
         return 1;
     }
     log_info("keymap=%s", g_keymap.c_str());
+
+    for (char& c : g_issue)
+    {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    if (g_issue == "issue2")
+    {
+        g_issue = "2";
+    }
+    else if (g_issue == "issue3")
+    {
+        g_issue = "3";
+    }
+    if (g_issue != "2" && g_issue != "3")
+    {
+        fprintf(stderr, "Error: unsupported --issue '%s'. Supported: 2, 3\n",
+                g_issue.c_str());
+        return 1;
+    }
+    if (g_issue == "2" && ula.is128)
+    {
+        log_warn("issue 2 floating bits apply to 48K only; 128K/+3 stay issue 3");
+    }
+    ula.set_issue2(g_issue == "2");
+    log_info("ula issue=%s", g_issue.c_str());
 
     if (g_headless)
     {

@@ -28,6 +28,12 @@ model = spectrum48
 ; If no ROM is found, a legally clean synthetic ROM is generated.
 rom_dir = rom
 
+[hardware]
+; 48K ULA issue for port FE bits 5 and 7 (default 3).
+; Issue 2: bits 5/7 are the inverse of MIC (bit 3 of the last OUT FE).
+; Issue 3 and 128K/+3: bits 5/7 always 1.
+; issue = 3
+
 [input]
 ; Optional: set SDL joystick index (0 = first joystick)
 ; joystick_index = 0

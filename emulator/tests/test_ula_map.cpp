@@ -269,3 +269,37 @@ TEST_CASE("port FE write records per-line border")
     REQUIRE(ula.line == 0);
     REQUIRE(ula.border_line[0] == 3);
 }
+
+TEST_CASE("Issue 3 port FE bits 5 and 7 stay 1 regardless of MIC")
+{
+    ULA ula;
+    ula.reset();
+    ula.set_issue2(false);
+    ula.ioWrite(0x00FE, 0x00);
+    REQUIRE((ula.ioRead(0x00FE) & 0xA0) == 0xA0);
+    ula.ioWrite(0x00FE, 0x08); /* MIC on */
+    REQUIRE((ula.ioRead(0x00FE) & 0xA0) == 0xA0);
+}
+
+TEST_CASE("Issue 2 port FE bits 5 and 7 invert MIC")
+{
+    ULA ula;
+    ula.reset();
+    ula.set_issue2(true);
+    ula.ioWrite(0x00FE, 0x00);
+    REQUIRE((ula.ioRead(0x00FE) & 0xA0) == 0xA0);
+    ula.ioWrite(0x00FE, 0x08); /* MIC on → bits 5/7 clear */
+    REQUIRE((ula.ioRead(0x00FE) & 0xA0) == 0x00);
+    ula.ioWrite(0x00FE, 0x07); /* MIC off, border 7 */
+    REQUIRE((ula.ioRead(0x00FE) & 0xA0) == 0xA0);
+}
+
+TEST_CASE("128K ignores Issue 2 floating bits")
+{
+    ULA ula;
+    ula.setModel128(true);
+    ula.reset();
+    ula.set_issue2(true);
+    ula.ioWrite(0x00FE, 0x08);
+    REQUIRE((ula.ioRead(0x00FE) & 0xA0) == 0xA0);
+}

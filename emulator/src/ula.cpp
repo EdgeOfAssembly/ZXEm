@@ -34,6 +34,8 @@ ULA::ULA() : border(0), beeper(false), tstates(0), frame_tstates(0), frame_irq(f
              port7ffd(0), port1ffd(0),
              kempston(0),
              beeper_state(false),
+             last_fe(0),
+             issue2_(false),
              extra_wait(0) {
     timing = kTiming48;
     reset();
@@ -71,6 +73,7 @@ void ULA::reset() {
     flash_counter = 0;
     kempston = 0;
     beeper_state = false;
+    last_fe = 0;
     extra_wait = 0;
     port7ffd = 0;
     port1ffd = 0;
@@ -203,6 +206,22 @@ uint8_t ULA::ioRead(uint16_t port) {
         {
             result = static_cast<uint8_t>(result & ~0x40);
         }
+        /* Bits 5 and 7: Issue 3 (and 128K/+3) always 1. Issue 2: inverse of MIC. */
+        if (issue2_ && !is128)
+        {
+            if ((last_fe & 0x08) != 0)
+            {
+                result = static_cast<uint8_t>(result & ~0xA0);
+            }
+            else
+            {
+                result = static_cast<uint8_t>(result | 0xA0);
+            }
+        }
+        else
+        {
+            result = static_cast<uint8_t>(result | 0xA0);
+        }
         return result;
     }
     return floating_bus();
@@ -226,6 +245,7 @@ void ULA::ioWrite(uint16_t port, uint8_t val) {
     uint8_t p = (uint8_t)(port & 0xFF);
     if ((p & 0x01) == 0)
     {
+        last_fe = val;
         border = val & 0x07;
         if (static_cast<unsigned>(line) < sizeof(border_line))
         {

@@ -75,3 +75,18 @@ TEST_CASE("Config::getInt uses strtol and rejects non-numeric")
     unlink(path.c_str());
     rmdir(dir);
 }
+
+TEST_CASE("Config reads hardware.issue")
+{
+    char dir[] = "/tmp/zxem-cfg-XXXXXX";
+    REQUIRE(mkdtemp(dir) != nullptr);
+    const std::string path = std::string(dir) + "/c.ini";
+    REQUIRE(write_ini(path, "[hardware]\nissue = 2\n"));
+
+    Config cfg;
+    REQUIRE(cfg.load(path.c_str()));
+    REQUIRE(cfg.getString("hardware", "issue") == "2");
+
+    unlink(path.c_str());
+    rmdir(dir);
+}

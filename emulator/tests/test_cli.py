@@ -41,7 +41,7 @@ def test_version_flags() -> None:
     for flag in ("-v", "--version"):
         p = run([flag])
         assert p.returncode == 0, flag
-        assert "zxem 0.7" in p.stdout
+        assert "zxem 0.8" in p.stdout
         assert "verbose" not in p.stdout.lower()
 
 
@@ -65,6 +65,7 @@ def test_help_lists_system_rom_and_disk_flags() -> None:
     assert "--plus3-rom" in p.stderr
     assert "plus3" in p.stderr
     assert "--keymap" in p.stderr
+    assert "--issue" in p.stderr
     assert "CLI flags" in p.stderr
     assert "compiled defaults" in p.stderr
 
@@ -133,3 +134,51 @@ def test_cli_keymap_wins_over_ini_regardless_of_flag_order(tmp_path: Path) -> No
         assert p.returncode == 0, p.stderr
         assert "keymap=spectrum" in p.stderr
         assert "keymap=wasd" not in p.stderr
+
+
+def _lsan_env() -> dict[str, str]:
+    env = os.environ.copy()
+    lsan = env.get("LSAN_OPTIONS", "")
+    extra = "exitcode=0"
+    env["LSAN_OPTIONS"] = f"{lsan}:{extra}" if lsan else extra
+    return env
+
+
+def test_issue_default_is_3(tmp_path: Path) -> None:
+    tap = tmp_path / "t.tap"
+    tap.write_bytes(_tiny_tap())
+    p = subprocess.run(
+        [str(ZXEM), "--headless", "--frames", "1", "--no-audio", str(tap)],
+        cwd=EMULATOR_DIR,
+        capture_output=True,
+        text=True,
+        timeout=30.0,
+        check=False,
+        env=_lsan_env(),
+    )
+    assert p.returncode == 0, p.stderr
+    assert "ula issue=3" in p.stderr
+
+
+def test_issue2_flag_and_order(tmp_path: Path) -> None:
+    tap = tmp_path / "t.tap"
+    tap.write_bytes(_tiny_tap())
+    p = subprocess.run(
+        [str(ZXEM), str(tap), "--issue", "2", "--headless", "--frames", "1", "--no-audio"],
+        cwd=EMULATOR_DIR,
+        capture_output=True,
+        text=True,
+        timeout=30.0,
+        check=False,
+        env=_lsan_env(),
+    )
+    assert p.returncode == 0, p.stderr
+    assert "ula issue=2" in p.stderr
+
+
+def test_issue_invalid_nonzero(tmp_path: Path) -> None:
+    tap = tmp_path / "t.tap"
+    tap.write_bytes(_tiny_tap())
+    p = run(["--issue", "1", "--headless", "--frames", "1", str(tap)])
+    assert p.returncode != 0
+    assert "unsupported --issue" in p.stderr

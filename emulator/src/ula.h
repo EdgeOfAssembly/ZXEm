@@ -120,6 +120,19 @@ public:
             timing = kTiming48;
         }
     }
+    /**
+     * @brief 48K Issue-2 vs Issue-3 keyboard floating bits (port FE bits 5 and 7).
+     *
+     * Issue 3 (default, and all 128K/+3): bits 5 and 7 always read 1.
+     * Issue 2: bits 5 and 7 are the inverse of MIC (bit 3 of the last OUT to FE).
+     * 128K/+3 ignore this and always behave as Issue 3.
+     *
+     * @param[in] on true → Issue 2 (48K only).
+     */
+    void set_issue2(bool on) { issue2_ = on; }
+    /** @brief True if Issue-2 floating bits were requested (128K still reads as Issue 3). */
+    bool issue2() const { return issue2_; }
+
     /** @brief Enable +2A/+3 paging (four ROM banks + uPD765). Implies 128K. */
     void setPlus3(bool on);
     /** @brief Opcode-fetch hook: page TR-DOS ROM in at 0x3D00–0x3DFF. */
@@ -160,6 +173,10 @@ public:
     void setKempston(uint8_t v) { kempston = v; }
 
     bool beeper_state;
+    /** @brief Last byte written to an even ULA port (FE); MIC is bit 3. */
+    uint8_t last_fe = 0;
+    /** @brief Request Issue-2 FE bits 5/7; ignored while @c is128. */
+    bool issue2_ = false;
     /** @brief I/O contention charged in ioRead/ioWrite; consumed by Z80. */
     int extra_wait = 0;
     /**
