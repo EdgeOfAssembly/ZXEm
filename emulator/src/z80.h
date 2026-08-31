@@ -1,3 +1,7 @@
+/**
+ * @file z80.h
+ * @brief Z80 CPU core (instruction T-states include ULA contention).
+ */
 #pragma once
 #include <cstdint>
 #include "ula.h"
@@ -43,19 +47,13 @@ public:
     uint8_t memRead(uint16_t addr)
     {
         const uint8_t v = ula->read(addr);
-        if (ula->isContended(addr))
-        {
-            tstates++;
-        }
+        add_wait(ula->isContended(addr));
         return v;
     }
     void memWrite(uint16_t addr, uint8_t val)
     {
         ula->write(addr, val);
-        if (ula->isContended(addr))
-        {
-            tstates++;
-        }
+        add_wait(ula->isContended(addr));
     }
     uint8_t ioRead(uint16_t port);
     void ioWrite(uint16_t port, uint8_t val);
@@ -77,7 +75,7 @@ public:
 
     /**
      * @brief Fast opcode step (no CPU trace). Selected at startup unless --trace-cpu.
-     * @return Instruction T-states (not a running total).
+     * @return Instruction T-states including ULA contention (not a running total).
      */
     int execute();
     /**
@@ -87,12 +85,38 @@ public:
     int execute_traced();
 
 private:
+    int extra_t = 0;
+    void add_wait(int extra)
+    {
+        tstates += extra;
+        extra_t += extra;
+    }
+    /**
+     * @brief Charge nominal opcode T-states and return the instruction cost including contention.
+     * @param[in] base_t Datasheet T-states for this opcode (no contention).
+     * @return @p base_t plus extra wait accumulated in mem/I/O this instruction.
+     */
+    int finish(int base_t)
+    {
+        tstates += base_t;
+        return base_t + extra_t;
+    }
     int op_ED();
     int op_CB();
     int op_DD();
     int op_FD();
     int op_DDCB(uint8_t d);
     int op_FDCB(uint8_t d);
+    /**
+     * @brief DD CB d xx / FD CB d xx (documented and undocumented).
+     * @param[in] index IX or IY base.
+     * @param[in] d Displacement already fetched after CB.
+     * @return Instruction T-states (20 for BIT, 23 for rotate/RES/SET).
+     * @note WZ/MEMPTR is not modeled; BIT X/Y use the high byte of @c index+d.
+     */
+    int op_idxCB(uint16_t index, uint8_t d);
+    /** @brief Write 8-bit register r (0=B … 5=L, 7=A). r=6 is a no-op (memory-only). */
+    void store_r(uint8_t r, uint8_t v);
 
     uint8_t add8(uint8_t a, uint8_t b, bool carry);
     uint8_t sub8(uint8_t a, uint8_t b, bool carry);
@@ -115,4 +139,13 @@ private:
     uint8_t sll(uint8_t v);
     uint8_t srl(uint8_t v);
     void bit(uint8_t n, uint8_t v);
+    /**
+     * @brief BIT n,(addr) — same as bit() but X/Y from the address high byte.
+     * @param[in] n Bit 0..7.
+     * @param[in] v Byte read from @p addr.
+     * @param[in] addr Effective address (HL or IX/IY+d).
+     * @note Real silicon copies X/Y from WZ high; this core has no WZ, so
+     *       @c addr>>8 is used (equals H for BIT (HL), (IX+d)>>8 for DDCB).
+     */
+    void bit_mem(uint8_t n, uint8_t v, uint16_t addr);
 };

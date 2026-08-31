@@ -508,3 +508,97 @@ TEST_CASE("Z80 v1 run of eight 0xED compresses and round-trips")
     }
     REQUIRE(ram48_equal(ula, ula2));
 }
+
+TEST_CASE("SNA CALL 0x0556 stack continues at LD-BYTES 0x056C")
+{
+    std::vector<uint8_t> sna(27 + 49152, 0);
+    const uint16_t sp = 0xFF00;
+    sna[23] = static_cast<uint8_t>(sp & 0xFF);
+    sna[24] = static_cast<uint8_t>(sp >> 8);
+    sna[25] = 1;
+    const size_t off = static_cast<size_t>(27 + (sp - 0x4000));
+    sna[off] = 0xCD;
+    sna[off + 1] = 0x56;
+    sna[off + 2] = 0x05;
+
+    Z80 z80;
+    ULA ula;
+    z80.ula = &ula;
+    ula.reset();
+    REQUIRE(load_sna(sna.data(), sna.size(), z80, ula));
+    REQUIRE(z80.PC == 0x056C);
+    REQUIRE(z80.SP == static_cast<uint16_t>(sp + 2));
+}
+
+TEST_CASE("SNA 48K pops a normal stacked PC")
+{
+    std::vector<uint8_t> sna(27 + 49152, 0);
+    const uint16_t sp = 0xFF00;
+    sna[23] = static_cast<uint8_t>(sp & 0xFF);
+    sna[24] = static_cast<uint8_t>(sp >> 8);
+    const size_t off = static_cast<size_t>(27 + (sp - 0x4000));
+    sna[off] = 0x00;
+    sna[off + 1] = 0x80;
+
+    Z80 z80;
+    ULA ula;
+    z80.ula = &ula;
+    ula.reset();
+    REQUIRE(load_sna(sna.data(), sna.size(), z80, ula));
+    REQUIRE(z80.PC == 0x8000);
+    REQUIRE(z80.SP == static_cast<uint16_t>(sp + 2));
+}
+
+TEST_CASE("Z80 v3 128K save round-trips distinct banks")
+{
+    Z80 z80;
+    ULA ula;
+    z80.ula = &ula;
+    ula.reset();
+    z80.reset();
+    ula.setModel128(true);
+    z80.PC = 0xC000;
+    z80.SP = 0xFFFD;
+    ula.port7ffd = 0x00;
+
+    std::memset(ula.ram_banks[5], 0x51, 16384);
+    std::memset(ula.ram_banks[2], 0x22, 16384);
+    std::memset(ula.ram_banks[0], 0xA0, 16384);
+    std::memset(ula.ram_banks[1], 0x11, 16384);
+    std::memset(ula.ram_banks[3], 0x33, 16384);
+    std::memset(ula.ram_banks[4], 0x44, 16384);
+    std::memset(ula.ram_banks[6], 0x66, 16384);
+    std::memset(ula.ram_banks[7], 0xB7, 16384);
+
+    const char* path = "/tmp/zxem-med7-128.z80";
+    REQUIRE(save_z80(path, z80, ula));
+
+    std::vector<uint8_t> blob;
+    REQUIRE(slurp_file(path, blob));
+    REQUIRE(blob.size() > 30 + 54);
+    REQUIRE(blob[6] == 0);
+    REQUIRE(blob[7] == 0);
+    const uint16_t extra = static_cast<uint16_t>(blob[30] | (static_cast<uint16_t>(blob[31]) << 8));
+    REQUIRE(extra >= 54);
+    REQUIRE(blob[32] == 0x00);
+    REQUIRE(blob[33] == 0xC0);
+    const uint8_t hw = blob[34];
+    REQUIRE((hw == 3 || hw == 4 || hw == 7));
+    REQUIRE(ula.ram_banks[5][0] != ula.ram_banks[7][0]);
+
+    Z80 loaded;
+    ULA ula2;
+    loaded.ula = &ula2;
+    ula2.reset();
+    REQUIRE(load_z80(blob.data(), blob.size(), loaded, ula2));
+    REQUIRE(ula2.is128);
+    REQUIRE(loaded.PC == 0xC000);
+    REQUIRE(ula2.port7ffd == 0x00);
+    REQUIRE(ula2.ram_banks[5][0] == 0x51);
+    REQUIRE(ula2.ram_banks[7][0] == 0xB7);
+    REQUIRE(ula2.ram_banks[5][0] != ula2.ram_banks[7][0]);
+    REQUIRE(std::memcmp(ula.ram_banks[5], ula2.ram_banks[5], 16384) == 0);
+    REQUIRE(std::memcmp(ula.ram_banks[2], ula2.ram_banks[2], 16384) == 0);
+    REQUIRE(std::memcmp(ula.ram_banks[0], ula2.ram_banks[0], 16384) == 0);
+    REQUIRE(std::memcmp(ula.ram_banks[7], ula2.ram_banks[7], 16384) == 0);
+}

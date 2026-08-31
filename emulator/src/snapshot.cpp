@@ -103,13 +103,14 @@ static bool decompress_ed_ed(ByteCursor& c, uint8_t* dest, uint32_t dest_size)
 }
 
 /**
- * @brief Z80 v1 RLE plus terminator @c 00 ED ED 00.
+ * @brief Z80 ED-ED RLE. v1 appends terminator @c 00 ED ED 00; v2/v3 pages do not.
  *
  * Runs of 5+ equal bytes, or 2+ 0xED, become @c ED ED count value. A lone 0xED
  * is one byte; the next byte is never taken into a run (else @c ED ED would be
  * a run header).
  */
-static void compress_ed_ed(const uint8_t* src, uint32_t n, std::vector<uint8_t>& out)
+static void compress_ed_ed(const uint8_t* src, uint32_t n, std::vector<uint8_t>& out,
+                           bool v1_terminator)
 {
     bool after_lone_ed = false;
     uint32_t i = 0;
@@ -154,10 +155,101 @@ static void compress_ed_ed(const uint8_t* src, uint32_t n, std::vector<uint8_t>&
         }
         i += run;
     }
-    out.push_back(0x00);
-    out.push_back(0xED);
-    out.push_back(0xED);
-    out.push_back(0x00);
+    if (v1_terminator)
+    {
+        out.push_back(0x00);
+        out.push_back(0xED);
+        out.push_back(0xED);
+        out.push_back(0x00);
+    }
+}
+
+/**
+ * @brief One 16K RAM page as a v2/v3 block (page = bank+3 on 128K).
+ * @return false on a short write.
+ *
+ * Compressed length 0xFFFF means a raw 16384-byte page (spec).
+ */
+static bool write_z80_ram_page(FILE* f, uint8_t page, const uint8_t* data)
+{
+    std::vector<uint8_t> compressed;
+    compressed.reserve(16384);
+    compress_ed_ed(data, 16384, compressed, false);
+    uint8_t hdr[3];
+    if (compressed.size() >= 16384)
+    {
+        hdr[0] = 0xFF;
+        hdr[1] = 0xFF;
+        hdr[2] = page;
+        return fwrite(hdr, 1, 3, f) == 3 && fwrite(data, 1, 16384, f) == 16384;
+    }
+    const uint16_t len = static_cast<uint16_t>(compressed.size());
+    hdr[0] = static_cast<uint8_t>(len & 0xFF);
+    hdr[1] = static_cast<uint8_t>(len >> 8);
+    hdr[2] = page;
+    return fwrite(hdr, 1, 3, f) == 3 &&
+           fwrite(compressed.data(), 1, compressed.size(), f) == compressed.size();
+}
+
+/**
+ * @brief Z80 v3 128K/+3 body: extra header, then banks 5, 2, paged, remainder.
+ * @return false on a short write.
+ *
+ * v3 hardware mode 4 is 128K (mode 3 is 48K+MGT). +3 uses mode 7 and a 55-byte
+ * extra header so 1FFD is stored.
+ */
+static bool save_z80_v3_128(FILE* f, const Z80& z80, const ULA& ula)
+{
+    const uint16_t ext_len = ula.plus3 ? 55u : 54u;
+    uint8_t ext[55];
+    memset(ext, 0, sizeof(ext));
+    ext[0] = static_cast<uint8_t>(z80.PC & 0xFF);
+    ext[1] = static_cast<uint8_t>(z80.PC >> 8);
+    ext[2] = ula.plus3 ? 7 : 4;
+    ext[3] = ula.port7ffd;
+    ext[5] = 0x07; /* R emu, LDIR emu, AY in use */
+    ext[6] = ula.ay.selected();
+    for (int i = 0; i < 16; i++)
+    {
+        ext[7 + i] = ula.ay.readReg(static_cast<uint8_t>(i));
+    }
+    if (ula.plus3)
+    {
+        ext[54] = ula.port1ffd;
+    }
+
+    const uint8_t lenbuf[2] = {
+        static_cast<uint8_t>(ext_len & 0xFF),
+        static_cast<uint8_t>(ext_len >> 8)
+    };
+    if (fwrite(lenbuf, 1, 2, f) != 2 || fwrite(ext, 1, ext_len, f) != ext_len)
+    {
+        return false;
+    }
+
+    bool written[8] = {};
+    auto write_bank = [&](int bank) -> bool {
+        if (bank < 0 || bank > 7 || written[bank])
+        {
+            return true;
+        }
+        written[bank] = true;
+        return write_z80_ram_page(f, static_cast<uint8_t>(bank + 3), ula.ram_banks[bank]);
+    };
+
+    const int paged = static_cast<int>(ula.port7ffd & 7);
+    if (!write_bank(5) || !write_bank(2) || !write_bank(paged))
+    {
+        return false;
+    }
+    for (int bank = 0; bank < 8; bank++)
+    {
+        if (!write_bank(bank))
+        {
+            return false;
+        }
+    }
+    return true;
 }
 
 static void parse_z80_v1_header(const uint8_t header[30], Z80& z80)
@@ -389,19 +481,36 @@ bool save_z80(const char* path, const Z80& z80, const ULA& ula)
     header[27] = z80.IFF1 ? 1 : 0;
     header[28] = z80.IFF2 ? 1 : 0;
     header[29] = static_cast<uint8_t>(z80.IM & 3);
-    fwrite(header, 1, 30, f);
+    if (ula.is128)
+    {
+        /* v2/v3: PC in the extra header; zero here selects that form. */
+        header[6] = 0;
+        header[7] = 0;
+    }
+    if (fwrite(header, 1, 30, f) != 30)
+    {
+        fclose(f);
+        return false;
+    }
+
+    if (ula.is128)
+    {
+        const bool ok = save_z80_v3_128(f, z80, ula);
+        fclose(f);
+        return ok;
+    }
 
     uint8_t linear[49152];
     memcpy(linear + 0x0000, ula.ram_banks[5], 16384);
     memcpy(linear + 0x4000, ula.ram_banks[2], 16384);
-    memcpy(linear + 0x8000, ula.ram_banks[ula.is128 ? (ula.port7ffd & 7) : 0], 16384);
+    memcpy(linear + 0x8000, ula.ram_banks[0], 16384);
 
     std::vector<uint8_t> compressed;
     compressed.reserve(49152);
-    compress_ed_ed(linear, 49152, compressed);
-    fwrite(compressed.data(), 1, compressed.size(), f);
+    compress_ed_ed(linear, 49152, compressed, true);
+    const bool ok = fwrite(compressed.data(), 1, compressed.size(), f) == compressed.size();
     fclose(f);
-    return true;
+    return ok;
 }
 
 bool load_sna(const uint8_t* data, size_t size, Z80& z80, ULA& ula)
@@ -472,9 +581,25 @@ bool load_sna(const uint8_t* data, size_t size, Z80& z80, ULA& ula)
     }
     else
     {
-        z80.PC = static_cast<uint16_t>(ula.read(z80.SP) | (static_cast<uint16_t>(ula.read(static_cast<uint16_t>(z80.SP + 1))) << 8));
-        z80.SP = static_cast<uint16_t>(z80.SP + 2);
-        log_info("SNA 48K PC=0x%04X SP=0x%04X", z80.PC, z80.SP);
+        const uint16_t sp0 = z80.SP;
+        const uint8_t b0 = ula.read(sp0);
+        const uint8_t b1 = ula.read(static_cast<uint16_t>(sp0 + 1));
+        const uint8_t b2 = ula.read(static_cast<uint16_t>(sp0 + 2));
+        z80.PC = static_cast<uint16_t>(b0 | (static_cast<uint16_t>(b1) << 8));
+        z80.SP = static_cast<uint16_t>(sp0 + 2);
+        /* Write-trap SNAs leave CALL 0x0556 (CD 56 05) where RETN's PC should
+         * be, so a naive pop yields 0x56CD. Continue at ROM LD-START. */
+        if ((b0 == 0xCD && b1 == 0x56 && b2 == 0x05) ||
+            z80.PC == 0x56CD || z80.PC == 0x0556)
+        {
+            z80.PC = 0x056C;
+            log_info("SNA: tape-trap CALL 0x0556; PC=0x056C (LD-BYTES continue) SP=0x%04X",
+                     z80.SP);
+        }
+        else
+        {
+            log_info("SNA 48K PC=0x%04X SP=0x%04X", z80.PC, z80.SP);
+        }
     }
     return true;
 }

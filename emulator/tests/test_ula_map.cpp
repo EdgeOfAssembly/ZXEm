@@ -54,21 +54,73 @@ TEST_CASE("isContended uses line window not integer divide")
     ula.reset();
     ula.line = 0;
     ula.line_tstates = 128;
-    REQUIRE_FALSE(ula.isContended(0x4000));
+    REQUIRE(ula.isContended(0x4000) == 0);
     ula.line = 64;
     ula.line_tstates = 128;
-    REQUIRE(ula.isContended(0x4000));
-    REQUIRE_FALSE(ula.isContended(0x0000));
-    REQUIRE_FALSE(ula.isContended(0x8000));
+    REQUIRE(ula.isContended(0x4000) == 6);
+    REQUIRE(ula.isContended(0x0000) == 0);
+    REQUIRE(ula.isContended(0x8000) == 0);
     ula.line_tstates = 0;
-    REQUIRE_FALSE(ula.isContended(0x4000));
+    REQUIRE(ula.isContended(0x4000) == 0);
     ula.setModel128(true);
     ula.port7ffd = 0x01;
     ula.line = 64;
     ula.line_tstates = 128;
-    REQUIRE(ula.isContended(0xC000));
+    REQUIRE(ula.isContended(0xC000) == 6);
     ula.port7ffd = 0x00;
-    REQUIRE_FALSE(ula.isContended(0xC000));
+    REQUIRE(ula.isContended(0xC000) == 0);
+}
+
+TEST_CASE("contention delay is 6,5,4,3,2,1,0,0 in the pixel window")
+{
+    ULA ula;
+    ula.reset();
+    ula.line = 64;
+    static constexpr int kPat[8] = {6, 5, 4, 3, 2, 1, 0, 0};
+    for (int i = 0; i < 8; i++)
+    {
+        ula.line_tstates = ULA::ULA_FIRST_PIXEL + i;
+        REQUIRE(ula.isContended(0x4000) == kPat[i]);
+    }
+    ula.line_tstates = ULA::ULA_FIRST_PIXEL + 8;
+    REQUIRE(ula.isContended(0x4000) == 6);
+    ula.line_tstates = ULA::ULA_FIRST_PIXEL;
+    REQUIRE(ula.io_contention(0xFE) == 6);
+    REQUIRE(ula.io_contention(0xFF) == 0);
+    ula.line = 63;
+    REQUIRE(ula.isContended(0x4000) == 0);
+    REQUIRE(ula.io_contention(0xFE) == 0);
+}
+
+TEST_CASE("48K t_frame is 69888")
+{
+    ULA ula;
+    REQUIRE(ula.t_line() == 224);
+    REQUIRE(ula.lines() == 312);
+    REQUIRE(ula.t_frame() == 69888);
+    REQUIRE(ula.cpu_hz() == 3500000);
+    REQUIRE(ula.t_line() * ula.lines() == ula.t_frame());
+}
+
+TEST_CASE("128K t_frame is 70908")
+{
+    ULA ula;
+    ula.setModel128(true);
+    REQUIRE(ula.t_line() == 228);
+    REQUIRE(ula.lines() == 311);
+    REQUIRE(ula.t_frame() == 70908);
+    REQUIRE(ula.cpu_hz() == 3546900);
+    REQUIRE(ula.t_line() * ula.lines() == ula.t_frame());
+    ula.reset();
+    ula.step(ula.t_frame());
+    REQUIRE(ula.line == 0);
+    REQUIRE(ula.frame_tstates == 0);
+    REQUIRE(ula.take_frame_irq());
+    ula.setPlus3(true);
+    REQUIRE(ula.t_frame() == 70908);
+    ula.setModel128(false);
+    REQUIRE(ula.t_frame() == 69888);
+    REQUIRE(ula.cpu_hz() == 3500000);
 }
 
 TEST_CASE("key 0 clears bit 0 on port 0xEFFE")

@@ -19,6 +19,7 @@ bool load_rom_from_dir(const char* dir, ULA& ula);
 bool load_plus3_roms_from_dir(const char* dir, ULA& ula);
 bool load_trdos_rom_file(const char* path, ULA& ula);
 bool load_system_roms(ULA& ula, const char* model);
+/** @brief Write a .z80 snapshot: v1 48K, or v3 (all 8 banks) if @p ula is 128K. */
 bool save_z80(const char* path, const Z80& z80, const ULA& ula);
 
 /**

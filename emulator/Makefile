@@ -80,7 +80,7 @@ $(TEST_BIN): $(TEST_SRCS) $(LIB_OBJS) | $(OBJDIR)
 
 test: $(TARGET) $(TEST_BIN)
 	./$(TEST_BIN)
-	$(PY) -m pytest -q --tb=short tests/test_cli.py
+	$(PY) -m pytest -q --tb=short tests
 tests: test
 
 verify: test

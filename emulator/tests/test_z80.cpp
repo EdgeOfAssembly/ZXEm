@@ -102,6 +102,34 @@ TEST_CASE("ED 5F is LD A,R not LD R,A")
     REQUIRE(z.A != 0x00);
 }
 
+TEST_CASE("memRead adds 6 T contention in the first pixel slot")
+{
+    ULA ula;
+    Z80 z;
+    z.ula = &ula;
+    ula.reset();
+    z.reset();
+    ula.line = 64;
+    ula.line_tstates = ULA::ULA_FIRST_PIXEL;
+    z.tstates = 0;
+    (void)z.memRead(0x4000);
+    REQUIRE(z.tstates == 6);
+    z.tstates = 0;
+    (void)z.memRead(0x0000);
+    REQUIRE(z.tstates == 0);
+    z.tstates = 0;
+    (void)z.ioRead(0xFE);
+    REQUIRE(z.tstates == 6);
+    z.tstates = 0;
+    (void)z.ioRead(0xFF);
+    REQUIRE(z.tstates == 0);
+    z.setHL(0x4000);
+    ula.rom[0] = 0x7E; /* LD A,(HL) */
+    z.PC = 0;
+    const int t = z.execute();
+    REQUIRE(t == 13); /* 7 T + 6 wait on (HL) */
+}
+
 TEST_CASE("prefixed execute returns instruction T-states not the accumulator")
 {
     ULA ula;
@@ -180,4 +208,115 @@ TEST_CASE("maskable INT fires once per frame from EI HALT")
     }
     REQUIRE(irqs == 3);
     REQUIRE(saw_rst38);
+}
+
+TEST_CASE("DDCB RLC (IX+d) copies result to A")
+{
+    ULA ula;
+    Z80 z;
+    z.ula = &ula;
+    ula.reset();
+    z.reset();
+    z.IX = 0x8000;
+    z.A = 0x00;
+    ula.write(0x8001, 0x80);
+    ula.rom[0] = 0xDD;
+    ula.rom[1] = 0xCB;
+    ula.rom[2] = 0x01; /* d */
+    ula.rom[3] = 0x07; /* RLC (IX+d) → A */
+    z.PC = 0;
+    const int t = z.execute();
+    REQUIRE(t == 23);
+    REQUIRE(ula.read(0x8001) == 0x01);
+    REQUIRE(z.A == 0x01);
+    REQUIRE((z.F & 0x01) == 0x01);
+}
+
+TEST_CASE("DDCB SET 0,(IX+d) copies result to A")
+{
+    ULA ula;
+    Z80 z;
+    z.ula = &ula;
+    ula.reset();
+    z.reset();
+    z.IX = 0x8000;
+    z.A = 0x00;
+    z.F = 0x00;
+    ula.write(0x8001, 0xF0);
+    ula.rom[0] = 0xDD;
+    ula.rom[1] = 0xCB;
+    ula.rom[2] = 0x01;
+    ula.rom[3] = 0xC7; /* SET 0,(IX+d) → A */
+    z.PC = 0;
+    const int t = z.execute();
+    REQUIRE(t == 23);
+    REQUIRE(ula.read(0x8001) == 0xF1);
+    REQUIRE(z.A == 0xF1);
+    REQUIRE(z.F == 0x00); /* SET does not update flags */
+}
+
+TEST_CASE("DDCB BIT (IX+d) is 20 T and does not write back")
+{
+    ULA ula;
+    Z80 z;
+    z.ula = &ula;
+    ula.reset();
+    z.reset();
+    z.IX = 0x8000;
+    z.A = 0xAA;
+    ula.write(0x8001, 0x01);
+    ula.rom[0] = 0xDD;
+    ula.rom[1] = 0xCB;
+    ula.rom[2] = 0x01;
+    ula.rom[3] = 0x46; /* BIT 0,(IX+d) */
+    z.PC = 0;
+    const int t = z.execute();
+    REQUIRE(t == 20);
+    REQUIRE(z.tstates == 20);
+    REQUIRE(ula.read(0x8001) == 0x01);
+    REQUIRE(z.A == 0xAA);
+}
+
+TEST_CASE("DDCB BIT X/Y come from address high byte")
+{
+    ULA ula;
+    Z80 z;
+    z.ula = &ula;
+    ula.reset();
+    z.reset();
+    /* 0xA828 high byte 0xA8 → X/Y = 0x28; operand 0x00 has neither bit. */
+    z.IX = 0xA800;
+    z.F = 0x01;
+    ula.write(0xA828, 0x00);
+    ula.rom[0] = 0xDD;
+    ula.rom[1] = 0xCB;
+    ula.rom[2] = 0x28;
+    ula.rom[3] = 0x46; /* BIT 0,(IX+d) */
+    z.PC = 0;
+    const int t = z.execute();
+    REQUIRE(t == 20);
+    REQUIRE((z.F & 0x28) == 0x28);
+    REQUIRE((z.F & 0x01) == 0x01);
+    REQUIRE((z.F & 0x40) != 0);
+}
+
+TEST_CASE("FDCB RLC (IY+d) copies result to A")
+{
+    ULA ula;
+    Z80 z;
+    z.ula = &ula;
+    ula.reset();
+    z.reset();
+    z.IY = 0x8000;
+    z.A = 0xFF;
+    ula.write(0x8001, 0x80);
+    ula.rom[0] = 0xFD;
+    ula.rom[1] = 0xCB;
+    ula.rom[2] = 0x01;
+    ula.rom[3] = 0x07; /* RLC (IY+d) → A */
+    z.PC = 0;
+    const int t = z.execute();
+    REQUIRE(t == 23);
+    REQUIRE(ula.read(0x8001) == 0x01);
+    REQUIRE(z.A == 0x01);
 }

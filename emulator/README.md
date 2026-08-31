@@ -105,8 +105,12 @@ and AY-3-8912 on `0xFFFD`/`0xBFFD`.
 
 ```bash
 ./zxem --headless --frames 50 /mnt/games/Manic\ Miner/*.z80
-python3 batch_test.py
+ZXEM_HEARTBEAT=1 python3 batch_test.py
 ```
+
+`ZXEM_HEARTBEAT=1` prints `Frame N, PC=… FRAMES=… scr=…` at load, every 50
+frames, and at `--frames` exit (stdout, even with `--no-log`). `batch_test.py`
+fails frozen runs (stuck PC without FRAMES/display-hash progress) and sanitizer hits.
 
 ## Controls
 

@@ -8,7 +8,9 @@ ULA::ULA() : border(0), beeper(false), tstates(0), frame_tstates(0), frame_irq(f
              is128(false), plus3(false), trdos_present(false), trdos_paged(false),
              port7ffd(0), port1ffd(0),
              kempston(0),
-             beeper_transition_tstates(0), last_beeper_state(0), beeper_state(false), beeper_changed(false) {
+             beeper_transition_tstates(0), last_beeper_state(0), beeper_state(false), beeper_changed(false),
+             extra_wait(0) {
+    timing = kTiming48;
     reset();
 }
 
@@ -46,6 +48,7 @@ void ULA::reset() {
     last_beeper_state = 0;
     beeper_state = false;
     beeper_changed = false;
+    extra_wait = 0;
     port7ffd = 0;
     port1ffd = 0;
     plus3 = false;
@@ -64,6 +67,7 @@ void ULA::setPlus3(bool on)
     if (on)
     {
         is128 = true;
+        timing = kTiming128;
     }
 }
 
@@ -119,6 +123,7 @@ void ULA::write(uint16_t addr, uint8_t val) {
 }
 
 uint8_t ULA::ioRead(uint16_t port) {
+    extra_wait += io_contention(port);
     uint8_t p = (uint8_t)(port & 0xFF);
     if (plus3)
     {
@@ -196,6 +201,7 @@ float ULA::currentAudioSample() const {
 }
 
 void ULA::ioWrite(uint16_t port, uint8_t val) {
+    extra_wait += io_contention(port);
     uint8_t p = (uint8_t)(port & 0xFF);
     if ((p & 0x01) == 0) {
         border = val & 0x07;
@@ -287,20 +293,22 @@ void ULA::step(int cycles) {
         ay.step(cycles);
     }
     /* Advance T-states in line-sized chunks instead of a 1-T loop. */
+    const int line_len = timing.t_line;
+    const int nlines = timing.lines;
     int left = cycles;
     while (left > 0)
     {
-        const int room = TSTATES_PER_LINE - line_tstates;
+        const int room = line_len - line_tstates;
         const int chunk = (left < room) ? left : room;
         tstates += chunk;
         frame_tstates += chunk;
         line_tstates += chunk;
         left -= chunk;
-        if (line_tstates >= TSTATES_PER_LINE)
+        if (line_tstates >= line_len)
         {
             line_tstates = 0;
             line++;
-            if (line >= LINES_PER_FRAME)
+            if (line >= nlines)
             {
                 line = 0;
                 frame_tstates = 0;

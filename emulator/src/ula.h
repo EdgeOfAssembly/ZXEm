@@ -1,3 +1,7 @@
+/**
+ * @file ula.h
+ * @brief ZX Spectrum ULA: memory, I/O, raster timing, and contention.
+ */
 #pragma once
 #include <cstdint>
 #include <cstring>
@@ -7,6 +11,22 @@
 
 class ULA {
 public:
+    /**
+     * @brief Per-model raster and CPU clock (48K vs 128K/+3).
+     *
+     * 48K: 224 T/line × 312 lines = 69 888 T at 3.5 MHz (50.08 Hz).
+     * 128K/+3: 228 T/line × 311 lines = 70 908 T at 3.5469 MHz (50.02 Hz).
+     */
+    struct Timing
+    {
+        int t_line;
+        int lines;
+        int t_frame;
+        int cpu_hz;
+    };
+    static constexpr Timing kTiming48{224, 312, 69888, 3500000};
+    static constexpr Timing kTiming128{228, 311, 70908, 3546900};
+    Timing timing{kTiming48};
     uint8_t rom[16384];
     uint8_t rom1[16384];
     uint8_t rom2[16384];
@@ -45,7 +65,7 @@ public:
     void ioWrite(uint16_t port, uint8_t val);
     void step(int cycles);
     /**
-     * @brief Consume the pending maskable frame INT (set when the raster wraps line 312→0).
+     * @brief Consume the pending maskable frame INT (set when the raster wraps last line→0).
      * @return true if a frame INT was pending; the flag is cleared.
      * @note Poll this instead of @c frame_tstates — wrap zeroes the counter in the same step.
      */
@@ -62,12 +82,31 @@ public:
      */
     void renderFrame(uint32_t* pixels, int pitch);
     /**
-     * @brief True if this access waits on the ULA (bank 5 / odd 128K banks during pixels).
+     * @brief Extra T-states if this memory access waits on the ULA.
+     * Bank 5 at $4000 and odd 128K banks at $C000, during the pixel window.
      * Uses @c line / @c line_tstates (no divide).
+     * @param[in] addr 16-bit memory address.
+     * @return Wait 0..6 (pattern 6,5,4,3,2,1,0,0 per 8 T); 0 if uncontended.
      */
-    bool isContended(uint16_t addr) const;
+    int isContended(uint16_t addr) const;
 
-    void setModel128(bool m) { is128 = m; }
+    /**
+     * @brief Select 48K or 128K timing (t_line/lines/t_frame/cpu_hz).
+     * @param[in] m true → 128K (228×311, 3.5469 MHz); false → 48K and not +3.
+     */
+    void setModel128(bool m)
+    {
+        is128 = m;
+        if (m)
+        {
+            timing = kTiming128;
+        }
+        else
+        {
+            plus3 = false;
+            timing = kTiming48;
+        }
+    }
     /** @brief Enable +2A/+3 paging (four ROM banks + uPD765). Implies 128K. */
     void setPlus3(bool on);
     /** @brief Opcode-fetch hook: page TR-DOS ROM in at 0x3D00–0x3DFF. */
@@ -103,20 +142,71 @@ public:
     uint64_t last_beeper_state;
     bool beeper_state;
     bool beeper_changed;
+    /** @brief I/O contention charged in ioRead/ioWrite; consumed by Z80. */
+    int extra_wait = 0;
     void beeperSet(bool on);
     float currentAudioSample() const;
+
+    int t_line() const { return timing.t_line; }
+    int lines() const { return timing.lines; }
+    int t_frame() const { return timing.t_frame; }
+    int cpu_hz() const { return timing.cpu_hz; }
+    /**
+     * @brief Extra T-states for the current raster slot (6,5,4,3,2,1,0,0 or 0).
+     * @return Wait in T-states; 0 outside the 192×128 pixel window.
+     */
+    int contention_delay() const;
+    /**
+     * @brief Extra T-states for an even ULA port (A0=0) in the pixel window.
+     * @param[in] port Full 16-bit I/O address.
+     * @return Same pattern as memory contention, or 0 if A0=1 or outside window.
+     */
+    int io_contention(uint16_t port) const;
+    /**
+     * @brief Consume I/O wait accumulated by ioRead/ioWrite.
+     * @return Extra T-states; the accumulator is cleared.
+     */
+    int take_extra_wait()
+    {
+        const int w = extra_wait;
+        extra_wait = 0;
+        return w;
+    }
 };
 
-[[gnu::always_inline]] inline bool ULA::isContended(uint16_t addr) const
+[[gnu::always_inline]] inline int ULA::contention_delay() const
+{
+    if (static_cast<unsigned>(line - ULA_FIRST_LINE) >= 192u)
+    {
+        return 0;
+    }
+    const int t = line_tstates - ULA_FIRST_PIXEL;
+    if (static_cast<unsigned>(t) >= 128u)
+    {
+        return 0;
+    }
+    static constexpr int kPat[8] = {6, 5, 4, 3, 2, 1, 0, 0};
+    return kPat[t & 7];
+}
+
+[[gnu::always_inline]] inline int ULA::io_contention(uint16_t port) const
+{
+    if ((port & 1u) != 0)
+    {
+        return 0;
+    }
+    return contention_delay();
+}
+
+[[gnu::always_inline]] inline int ULA::isContended(uint16_t addr) const
 {
     const bool bank5 = (addr & 0xC000u) == 0x4000u;
     const bool odd_c000 = is128 && (addr >= 0xC000u) && ((port7ffd & 1u) != 0);
     if (!bank5 && !odd_c000)
     {
-        return false;
+        return 0;
     }
-    return static_cast<unsigned>(line - ULA_FIRST_LINE) < 192u
-        && static_cast<unsigned>(line_tstates - (ULA_FIRST_PIXEL - 1)) < 129u;
+    return contention_delay();
 }
 
 [[gnu::always_inline]] inline uint8_t ULA::read(uint16_t addr)

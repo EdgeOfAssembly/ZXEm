@@ -6,6 +6,7 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
 #include <cctype>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -79,9 +80,10 @@ static std::string g_log_file;
 static bool g_headless = false;
 static bool g_no_audio = false;
 static bool g_list_only = false;
+static bool g_heartbeat = false;
 static int g_max_frames = -1;
 
-static const int AUDIO_BUFFER_SIZE = 16384;
+static const int AUDIO_BUFFER_SIZE = 32768;
 static int16_t audio_buffer[AUDIO_BUFFER_SIZE];
 static std::atomic<int> audio_write_pos{0};
 static std::atomic<int> audio_read_pos{0};
@@ -113,10 +115,11 @@ static void pushAudioSample(int16_t sample)
 {
     const int wp = audio_write_pos.load(std::memory_order_relaxed);
     const int next = (wp + 1) % AUDIO_BUFFER_SIZE;
-    int rp = audio_read_pos.load(std::memory_order_acquire);
+    const int rp = audio_read_pos.load(std::memory_order_acquire);
     if (next == rp)
     {
-        audio_read_pos.store((rp + 1) % AUDIO_BUFFER_SIZE, std::memory_order_release);
+        /* Drop newest; the producer must not move read_pos. */
+        return;
     }
     audio_buffer[wp] = sample;
     audio_write_pos.store(next, std::memory_order_release);
@@ -139,9 +142,8 @@ static void init_audio()
     }
 }
 
-/** @brief 3.5 MHz / 44100 Hz ≈ 79 T-states per host sample. */
-static const int T_PER_SAMPLE = 79;
-static int audio_t_accum = 0;
+/** @brief Bresenham T-state accumulator: emit 44100 samples per cpu_hz. */
+static int64_t audio_t_accum = 0;
 
 static void updateAudio(int tstates)
 {
@@ -149,10 +151,11 @@ static void updateAudio(int tstates)
     {
         return;
     }
-    audio_t_accum += tstates;
-    while (audio_t_accum >= T_PER_SAMPLE)
+    const int hz = ula.cpu_hz();
+    audio_t_accum += static_cast<int64_t>(tstates) * SAMPLE_RATE;
+    while (audio_t_accum >= hz)
     {
-        audio_t_accum -= T_PER_SAMPLE;
+        audio_t_accum -= hz;
         ula.beeper_changed = false;
         const float s = ula.currentAudioSample();
         pushAudioSample(static_cast<int16_t>(s * 12000.0f));
@@ -805,6 +808,58 @@ static std::string resolve_input(const std::string& spec)
     return spec;
 }
 
+/** @brief True when ZXEM_HEARTBEAT is set to a non-empty value other than "0". */
+static bool heartbeat_enabled(void)
+{
+    const char* e = std::getenv("ZXEM_HEARTBEAT");
+    return e != nullptr && e[0] != '\0' && std::strcmp(e, "0") != 0;
+}
+
+/**
+ * @brief FNV-1a of the 6912-byte display file (0x4000–0x5AFF).
+ * @param u ULA whose @c ram[0..6911] is the current screen.
+ * @return 32-bit hash (stable across runs for the same bytes).
+ */
+static uint32_t hash_display_file(const ULA& u)
+{
+    uint32_t h = 2166136261u;
+    for (int i = 0; i < 6912; i++)
+    {
+        h ^= u.ram[i];
+        h *= 16777619u;
+    }
+    return h;
+}
+
+/**
+ * @brief Spectrum FRAMES system variable at 0x5C78 (24-bit little-endian).
+ * @note ROM IM 1 ISR increments this; a stuck HALT with dead INT does not.
+ */
+static uint32_t read_frames_sysvar(const ULA& u)
+{
+    constexpr int kOff = 0x5C78 - 0x4000;
+    return static_cast<uint32_t>(u.ram[kOff])
+         | (static_cast<uint32_t>(u.ram[kOff + 1]) << 8)
+         | (static_cast<uint32_t>(u.ram[kOff + 2]) << 16);
+}
+
+/**
+ * @brief Emit a liveness sample (stdout always; info log if logging is on).
+ *
+ * Format is parsed by @c batch_test.py / @c tests/test_liveness.py:
+ * @c Frame N, PC=0x.... SP=0x.... FRAMES=0x...... scr=xxxxxxxx
+ */
+static void print_heartbeat(int frame, const Z80& cpu, const ULA& u)
+{
+    const uint32_t frames = read_frames_sysvar(u);
+    const uint32_t scr = hash_display_file(u);
+    printf("Frame %d, PC=0x%04X SP=0x%04X FRAMES=0x%06X scr=%08x\n",
+           frame, cpu.PC, cpu.SP, frames, scr);
+    fflush(stdout);
+    log_info("frame %d PC=0x%04X SP=0x%04X FRAMES=0x%06X scr=%08x",
+             frame, cpu.PC, cpu.SP, frames, scr);
+}
+
 int main(int argc, char* argv[])
 {
     std::vector<std::string> inputs;
@@ -1242,6 +1297,11 @@ int main(int argc, char* argv[])
              z80.PC, z80.SP, g_model.c_str(), ula.is128 ? 1 : 0);
     printf("Loaded %s PC=0x%04X SP=0x%04X model=%s\n",
            g_game_path.c_str(), z80.PC, z80.SP, g_model.c_str());
+    g_heartbeat = heartbeat_enabled();
+    if (g_heartbeat)
+    {
+        print_heartbeat(0, z80, ula);
+    }
     if (!g_headless)
     {
         fprintf(stderr, "Click the ZXEm window, then press keys. Each press is logged as 'key down'.\n");
@@ -1261,10 +1321,8 @@ int main(int argc, char* argv[])
         cpu_step = &Z80::execute_traced;
     }
 
-    const int TSTATES_PER_FRAME = 69888;
-    const int TARGET_FRAME_US = 20000;
-    uint64_t last_frame_time = SDL_GetPerformanceCounter();
     const uint64_t perf_freq = SDL_GetPerformanceFrequency();
+    uint64_t next_deadline = SDL_GetPerformanceCounter();
     int frame_count = 0;
 
     while (running)
@@ -1279,9 +1337,11 @@ int main(int argc, char* argv[])
             pump_input();
         }
 
+        const int frame_t = ula.t_frame();
+        const int poll_div = frame_t / 4;
         int tstates_this_frame = 0;
         int poll_acc = 0;
-        while (tstates_this_frame < TSTATES_PER_FRAME)
+        while (tstates_this_frame < frame_t)
         {
             const int ts = (z80.*cpu_step)();
             ula.step(ts);
@@ -1291,7 +1351,7 @@ int main(int argc, char* argv[])
             }
             tstates_this_frame += ts;
             poll_acc += ts;
-            if (!g_headless && poll_acc >= 17472)
+            if (!g_headless && poll_acc >= poll_div)
             {
                 poll_acc = 0;
                 pump_input();
@@ -1339,7 +1399,13 @@ int main(int argc, char* argv[])
             log_debug("frame %d PC=0x%04X", frame_count, z80.PC);
         }
 
-        if (g_max_frames > 0 && frame_count >= g_max_frames)
+        const bool last_frame = (g_max_frames > 0 && frame_count >= g_max_frames);
+        if (g_heartbeat && (frame_count == 1 || frame_count % 50 == 0 || last_frame))
+        {
+            print_heartbeat(frame_count, z80, ula);
+        }
+
+        if (last_frame)
         {
             printf("Reached target frame count %d, exiting.\n", g_max_frames);
             running = false;
@@ -1347,13 +1413,24 @@ int main(int argc, char* argv[])
 
         if (!g_headless)
         {
+            const uint64_t frame_ticks =
+                (perf_freq * static_cast<uint64_t>(ula.t_frame())) /
+                static_cast<uint64_t>(ula.cpu_hz());
+            next_deadline += frame_ticks;
             const uint64_t now = SDL_GetPerformanceCounter();
-            const uint64_t elapsed_us = (now - last_frame_time) * 1000000 / perf_freq;
-            if (elapsed_us < TARGET_FRAME_US)
+            if (now < next_deadline)
             {
-                SDL_Delay(static_cast<Uint32>((TARGET_FRAME_US - elapsed_us) / 1000));
+                const uint64_t remain_ticks = next_deadline - now;
+                const uint64_t remain_us = remain_ticks * 1000000ull / perf_freq;
+                const uint32_t delay_ms = static_cast<uint32_t>(remain_us / 1000ull);
+                if (delay_ms > 0)
+                {
+                    SDL_Delay(delay_ms);
+                }
+                while (SDL_GetPerformanceCounter() < next_deadline)
+                {
+                }
             }
-            last_frame_time = SDL_GetPerformanceCounter();
             end_ula_frame_latches();
         }
     }

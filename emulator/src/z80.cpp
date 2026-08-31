@@ -24,6 +24,7 @@ void Z80::reset() {
     ei_pending = false;
     nmi_pending = false;
     tstates = 0;
+    extra_t = 0;
 }
 
 bool Z80::parity(uint8_t v) {
@@ -36,11 +37,14 @@ bool Z80::parity(uint8_t v) {
 
 
 uint8_t Z80::ioRead(uint16_t port) {
-    return ula->ioRead(port);
+    const uint8_t v = ula->ioRead(port);
+    add_wait(ula->take_extra_wait());
+    return v;
 }
 
 void Z80::ioWrite(uint16_t port, uint8_t val) {
     ula->ioWrite(port, val);
+    add_wait(ula->take_extra_wait());
 }
 
 uint8_t Z80::fetch8() {
@@ -261,17 +265,39 @@ void Z80::bit(uint8_t n, uint8_t v) {
     setFlag53(v);
 }
 
+void Z80::bit_mem(uint8_t n, uint8_t v, uint16_t addr)
+{
+    bit(n, v);
+    /* WZ not modeled: X/Y from the address high byte (WZ would be addr). */
+    setFlag53(static_cast<uint8_t>(addr >> 8));
+}
+
+void Z80::store_r(uint8_t r, uint8_t v)
+{
+    switch (r & 7u)
+    {
+        case 0: B = v; break;
+        case 1: C = v; break;
+        case 2: D = v; break;
+        case 3: E = v; break;
+        case 4: H = v; break;
+        case 5: L = v; break;
+        case 7: A = v; break;
+        default: break; /* 6 = (IX/IY+d) only, no register copy */
+    }
+}
+
 int Z80::execute() {
+    extra_t = 0;
     if (nmi_pending) {
         nmi_pending = false;
         halted = false;
         IFF2 = IFF1;
         IFF1 = false;
-        tstates += 11;
         memWrite(--SP, (uint8_t)(PC >> 8));
         memWrite(--SP, (uint8_t)(PC & 0xFF));
         PC = 0x0066;
-        return 11;
+        return finish(11);
     }
 
     if (ei_pending) {
@@ -280,8 +306,7 @@ int Z80::execute() {
     }
 
     if (halted) {
-        tstates += 4;
-        return 4;
+        return finish(4);
     }
 
     R = (R & 0x80) | ((R + 1) & 0x7F);
@@ -578,8 +603,7 @@ int Z80::execute() {
         case 0xFF: { memWrite(--SP, (uint8_t)(PC >> 8)); memWrite(--SP, (uint8_t)(PC & 0xFF)); PC = 0x0038; base_t = 11; } break;
     }
 
-    tstates += base_t;
-    return base_t;
+    return finish(base_t);
 }
 
 int Z80::op_ED() {
@@ -845,8 +869,7 @@ int Z80::op_ED() {
         default: break;
     }
 
-    tstates += base_t;
-    return base_t;
+    return finish(base_t);
 }
 
 int Z80::op_CB() {
@@ -928,7 +951,7 @@ int Z80::op_CB() {
         case 0x43: bit(0, E); break;
         case 0x44: bit(0, H); break;
         case 0x45: bit(0, L); break;
-        case 0x46: bit(0, memRead(getHL())); base_t = 12; break;
+        case 0x46: bit_mem(0, memRead(getHL()), getHL()); base_t = 12; break;
         case 0x47: bit(0, A); break;
         case 0x48: bit(1, B); break;
         case 0x49: bit(1, C); break;
@@ -936,7 +959,7 @@ int Z80::op_CB() {
         case 0x4B: bit(1, E); break;
         case 0x4C: bit(1, H); break;
         case 0x4D: bit(1, L); break;
-        case 0x4E: bit(1, memRead(getHL())); base_t = 12; break;
+        case 0x4E: bit_mem(1, memRead(getHL()), getHL()); base_t = 12; break;
         case 0x4F: bit(1, A); break;
 
         case 0x50: bit(2, B); break;
@@ -945,7 +968,7 @@ int Z80::op_CB() {
         case 0x53: bit(2, E); break;
         case 0x54: bit(2, H); break;
         case 0x55: bit(2, L); break;
-        case 0x56: bit(2, memRead(getHL())); base_t = 12; break;
+        case 0x56: bit_mem(2, memRead(getHL()), getHL()); base_t = 12; break;
         case 0x57: bit(2, A); break;
         case 0x58: bit(3, B); break;
         case 0x59: bit(3, C); break;
@@ -953,7 +976,7 @@ int Z80::op_CB() {
         case 0x5B: bit(3, E); break;
         case 0x5C: bit(3, H); break;
         case 0x5D: bit(3, L); break;
-        case 0x5E: bit(3, memRead(getHL())); base_t = 12; break;
+        case 0x5E: bit_mem(3, memRead(getHL()), getHL()); base_t = 12; break;
         case 0x5F: bit(3, A); break;
 
         case 0x60: bit(4, B); break;
@@ -962,7 +985,7 @@ int Z80::op_CB() {
         case 0x63: bit(4, E); break;
         case 0x64: bit(4, H); break;
         case 0x65: bit(4, L); break;
-        case 0x66: bit(4, memRead(getHL())); base_t = 12; break;
+        case 0x66: bit_mem(4, memRead(getHL()), getHL()); base_t = 12; break;
         case 0x67: bit(4, A); break;
         case 0x68: bit(5, B); break;
         case 0x69: bit(5, C); break;
@@ -970,7 +993,7 @@ int Z80::op_CB() {
         case 0x6B: bit(5, E); break;
         case 0x6C: bit(5, H); break;
         case 0x6D: bit(5, L); break;
-        case 0x6E: bit(5, memRead(getHL())); base_t = 12; break;
+        case 0x6E: bit_mem(5, memRead(getHL()), getHL()); base_t = 12; break;
         case 0x6F: bit(5, A); break;
 
         case 0x70: bit(6, B); break;
@@ -979,7 +1002,7 @@ int Z80::op_CB() {
         case 0x73: bit(6, E); break;
         case 0x74: bit(6, H); break;
         case 0x75: bit(6, L); break;
-        case 0x76: bit(6, memRead(getHL())); base_t = 12; break;
+        case 0x76: bit_mem(6, memRead(getHL()), getHL()); base_t = 12; break;
         case 0x77: bit(6, A); break;
         case 0x78: bit(7, B); break;
         case 0x79: bit(7, C); break;
@@ -987,7 +1010,7 @@ int Z80::op_CB() {
         case 0x7B: bit(7, E); break;
         case 0x7C: bit(7, H); break;
         case 0x7D: bit(7, L); break;
-        case 0x7E: bit(7, memRead(getHL())); base_t = 12; break;
+        case 0x7E: bit_mem(7, memRead(getHL()), getHL()); base_t = 12; break;
         case 0x7F: bit(7, A); break;
 
         case 0x80: B &= ~(1 << 0); break;
@@ -1127,8 +1150,7 @@ int Z80::op_CB() {
         case 0xFF: A |= (1 << 7); break;
     }
 
-    tstates += base_t;
-    return base_t;
+    return finish(base_t);
 }
 
 int Z80::op_DD() {
@@ -1186,8 +1208,7 @@ int Z80::op_DD() {
         }
     }
 
-    tstates += base_t;
-    return base_t;
+    return finish(base_t);
 }
 
 int Z80::op_FD() {
@@ -1245,96 +1266,60 @@ int Z80::op_FD() {
         }
     }
 
-    tstates += base_t;
-    return base_t;
+    return finish(base_t);
 }
 
-int Z80::op_DDCB(uint8_t d) {
-    uint8_t op = fetch8();
-    uint16_t addr = IX + (int8_t)d;
-    int base_t = 23;
-
-    switch (op) {
-        case 0x06: { uint8_t v = rlc(memRead(addr)); memWrite(addr, v); } break;
-        case 0x0E: { uint8_t v = rrc(memRead(addr)); memWrite(addr, v); } break;
-        case 0x16: { uint8_t v = rl(memRead(addr)); memWrite(addr, v); } break;
-        case 0x1E: { uint8_t v = rr(memRead(addr)); memWrite(addr, v); } break;
-        case 0x26: { uint8_t v = sla(memRead(addr)); memWrite(addr, v); } break;
-        case 0x2E: { uint8_t v = sra(memRead(addr)); memWrite(addr, v); } break;
-        case 0x36: { uint8_t v = sll(memRead(addr)); memWrite(addr, v); } break;
-        case 0x3E: { uint8_t v = srl(memRead(addr)); memWrite(addr, v); } break;
-        case 0x46: bit(0, memRead(addr)); break;
-        case 0x4E: bit(1, memRead(addr)); break;
-        case 0x56: bit(2, memRead(addr)); break;
-        case 0x5E: bit(3, memRead(addr)); break;
-        case 0x66: bit(4, memRead(addr)); break;
-        case 0x6E: bit(5, memRead(addr)); break;
-        case 0x76: bit(6, memRead(addr)); break;
-        case 0x7E: bit(7, memRead(addr)); break;
-        case 0x86: { uint8_t v = memRead(addr) & ~(1 << 0); memWrite(addr, v); } break;
-        case 0x8E: { uint8_t v = memRead(addr) & ~(1 << 1); memWrite(addr, v); } break;
-        case 0x96: { uint8_t v = memRead(addr) & ~(1 << 2); memWrite(addr, v); } break;
-        case 0x9E: { uint8_t v = memRead(addr) & ~(1 << 3); memWrite(addr, v); } break;
-        case 0xA6: { uint8_t v = memRead(addr) & ~(1 << 4); memWrite(addr, v); } break;
-        case 0xAE: { uint8_t v = memRead(addr) & ~(1 << 5); memWrite(addr, v); } break;
-        case 0xB6: { uint8_t v = memRead(addr) & ~(1 << 6); memWrite(addr, v); } break;
-        case 0xBE: { uint8_t v = memRead(addr) & ~(1 << 7); memWrite(addr, v); } break;
-        case 0xC6: { uint8_t v = memRead(addr) | (1 << 0); memWrite(addr, v); } break;
-        case 0xCE: { uint8_t v = memRead(addr) | (1 << 1); memWrite(addr, v); } break;
-        case 0xD6: { uint8_t v = memRead(addr) | (1 << 2); memWrite(addr, v); } break;
-        case 0xDE: { uint8_t v = memRead(addr) | (1 << 3); memWrite(addr, v); } break;
-        case 0xE6: { uint8_t v = memRead(addr) | (1 << 4); memWrite(addr, v); } break;
-        case 0xEE: { uint8_t v = memRead(addr) | (1 << 5); memWrite(addr, v); } break;
-        case 0xF6: { uint8_t v = memRead(addr) | (1 << 6); memWrite(addr, v); } break;
-        case 0xFE: { uint8_t v = memRead(addr) | (1 << 7); memWrite(addr, v); } break;
-        default: break;
-    }
-
-    tstates += base_t;
-    return base_t;
+int Z80::op_DDCB(uint8_t d)
+{
+    return op_idxCB(IX, d);
 }
 
-int Z80::op_FDCB(uint8_t d) {
-    uint8_t op = fetch8();
-    uint16_t addr = IY + (int8_t)d;
-    int base_t = 23;
+int Z80::op_FDCB(uint8_t d)
+{
+    return op_idxCB(IY, d);
+}
 
-    switch (op) {
-        case 0x06: { uint8_t v = rlc(memRead(addr)); memWrite(addr, v); } break;
-        case 0x0E: { uint8_t v = rrc(memRead(addr)); memWrite(addr, v); } break;
-        case 0x16: { uint8_t v = rl(memRead(addr)); memWrite(addr, v); } break;
-        case 0x1E: { uint8_t v = rr(memRead(addr)); memWrite(addr, v); } break;
-        case 0x26: { uint8_t v = sla(memRead(addr)); memWrite(addr, v); } break;
-        case 0x2E: { uint8_t v = sra(memRead(addr)); memWrite(addr, v); } break;
-        case 0x36: { uint8_t v = sll(memRead(addr)); memWrite(addr, v); } break;
-        case 0x3E: { uint8_t v = srl(memRead(addr)); memWrite(addr, v); } break;
-        case 0x46: bit(0, memRead(addr)); break;
-        case 0x4E: bit(1, memRead(addr)); break;
-        case 0x56: bit(2, memRead(addr)); break;
-        case 0x5E: bit(3, memRead(addr)); break;
-        case 0x66: bit(4, memRead(addr)); break;
-        case 0x6E: bit(5, memRead(addr)); break;
-        case 0x76: bit(6, memRead(addr)); break;
-        case 0x7E: bit(7, memRead(addr)); break;
-        case 0x86: { uint8_t v = memRead(addr) & ~(1 << 0); memWrite(addr, v); } break;
-        case 0x8E: { uint8_t v = memRead(addr) & ~(1 << 1); memWrite(addr, v); } break;
-        case 0x96: { uint8_t v = memRead(addr) & ~(1 << 2); memWrite(addr, v); } break;
-        case 0x9E: { uint8_t v = memRead(addr) & ~(1 << 3); memWrite(addr, v); } break;
-        case 0xA6: { uint8_t v = memRead(addr) & ~(1 << 4); memWrite(addr, v); } break;
-        case 0xAE: { uint8_t v = memRead(addr) & ~(1 << 5); memWrite(addr, v); } break;
-        case 0xB6: { uint8_t v = memRead(addr) & ~(1 << 6); memWrite(addr, v); } break;
-        case 0xBE: { uint8_t v = memRead(addr) & ~(1 << 7); memWrite(addr, v); } break;
-        case 0xC6: { uint8_t v = memRead(addr) | (1 << 0); memWrite(addr, v); } break;
-        case 0xCE: { uint8_t v = memRead(addr) | (1 << 1); memWrite(addr, v); } break;
-        case 0xD6: { uint8_t v = memRead(addr) | (1 << 2); memWrite(addr, v); } break;
-        case 0xDE: { uint8_t v = memRead(addr) | (1 << 3); memWrite(addr, v); } break;
-        case 0xE6: { uint8_t v = memRead(addr) | (1 << 4); memWrite(addr, v); } break;
-        case 0xEE: { uint8_t v = memRead(addr) | (1 << 5); memWrite(addr, v); } break;
-        case 0xF6: { uint8_t v = memRead(addr) | (1 << 6); memWrite(addr, v); } break;
-        case 0xFE: { uint8_t v = memRead(addr) | (1 << 7); memWrite(addr, v); } break;
-        default: break;
+int Z80::op_idxCB(uint16_t index, uint8_t d)
+{
+    const uint8_t op = fetch8();
+    const uint16_t addr = static_cast<uint16_t>(index + static_cast<int8_t>(d));
+    const uint8_t dest = static_cast<uint8_t>(op & 7u);
+    const uint8_t y = static_cast<uint8_t>((op >> 3) & 7u);
+    const uint8_t group = static_cast<uint8_t>(op >> 6);
+    const uint8_t val = memRead(addr);
+
+    if (group == 1u)
+    {
+        /* BIT b,(IX/IY+d): 20 T, no writeback, no register copy. */
+        bit_mem(y, val, addr);
+        return finish(20);
     }
 
-    tstates += base_t;
-    return base_t;
+    uint8_t result = val;
+    if (group == 0u)
+    {
+        switch (y)
+        {
+            case 0: result = rlc(val); break;
+            case 1: result = rrc(val); break;
+            case 2: result = rl(val); break;
+            case 3: result = rr(val); break;
+            case 4: result = sla(val); break;
+            case 5: result = sra(val); break;
+            case 6: result = sll(val); break;
+            default: result = srl(val); break;
+        }
+    }
+    else if (group == 2u)
+    {
+        result = static_cast<uint8_t>(val & static_cast<uint8_t>(~(1u << y)));
+    }
+    else
+    {
+        result = static_cast<uint8_t>(val | static_cast<uint8_t>(1u << y));
+    }
+
+    memWrite(addr, result);
+    store_r(dest, result);
+    return finish(23);
 }
