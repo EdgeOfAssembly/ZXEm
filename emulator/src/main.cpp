@@ -212,89 +212,34 @@ static bool load_game_spec(const std::string& spec)
     return true;
 }
 
-static uint8_t g_key_sticky[8][5];
-static uint8_t g_joy_hold[5]; /* Kempston bits 0..4, frames remaining */
+/** @brief KEYDOWN latches until the end of this ULA frame (same-poll KEYUP). */
+static bool g_key_latch[SDL_NUM_SCANCODES];
 
-static void sticky_press(int row, int bit)
+static bool key_down(const Uint8* ks, SDL_Scancode sc)
 {
-    if (row < 0 || row > 7 || bit < 0 || bit > 4)
-    {
-        return;
-    }
-    g_key_sticky[row][bit] = 12; /* ~240 ms at 50 Hz — menu polls once per draw */
-    ula.setKey(row, bit, true);
+    const int i = static_cast<int>(sc);
+    return ks[sc] || (i >= 0 && i < SDL_NUM_SCANCODES && g_key_latch[i]);
 }
 
-static void sticky_decay()
+static void latch_scancode(SDL_Scancode sc)
 {
-    for (int row = 0; row < 8; row++)
+    const int i = static_cast<int>(sc);
+    if (i >= 0 && i < SDL_NUM_SCANCODES)
     {
-        for (int bit = 0; bit < 5; bit++)
+        g_key_latch[i] = true;
+    }
+}
+
+static void end_ula_frame_latches()
+{
+    const Uint8* ks = SDL_GetKeyboardState(nullptr);
+    for (int i = 0; i < SDL_NUM_SCANCODES; i++)
+    {
+        if (g_key_latch[i] && ks[i] == 0)
         {
-            if (g_key_sticky[row][bit] == 0)
-            {
-                continue;
-            }
-            ula.setKey(row, bit, true);
-            g_key_sticky[row][bit]--;
+            g_key_latch[i] = false;
         }
     }
-}
-
-static void joy_hold(int bit)
-{
-    if (bit >= 0 && bit < 5)
-    {
-        g_joy_hold[bit] = 12;
-    }
-}
-
-/** @brief WASD overlay targets (Knight Lore A/Z/X/Q + Kempston). */
-static void sticky_wasd(SDL_Scancode sc)
-{
-    if (g_keymap != "wasd")
-    {
-        return;
-    }
-    switch (sc)
-    {
-        case SDL_SCANCODE_W:
-        case SDL_SCANCODE_UP:
-            sticky_press(1, 0);
-            joy_hold(3);
-            break;
-        case SDL_SCANCODE_A:
-        case SDL_SCANCODE_LEFT:
-            sticky_press(0, 1);
-            joy_hold(1);
-            break;
-        case SDL_SCANCODE_D:
-        case SDL_SCANCODE_RIGHT:
-            sticky_press(0, 2);
-            joy_hold(0);
-            break;
-        case SDL_SCANCODE_S:
-        case SDL_SCANCODE_DOWN:
-            joy_hold(2);
-            break;
-        case SDL_SCANCODE_LCTRL:
-        case SDL_SCANCODE_RCTRL:
-            sticky_press(2, 0);
-            joy_hold(4);
-            break;
-        default:
-            break;
-    }
-}
-
-static void matrix_key(int row, int bit, bool pressed)
-{
-    if (pressed)
-    {
-        sticky_press(row, bit);
-        return;
-    }
-    /* Same-poll KEYUP must not clear a tap; sticky_decay holds it. */
 }
 
 static void handle_key(SDL_Keycode key, bool pressed)
@@ -352,83 +297,83 @@ static void handle_key(SDL_Keycode key, bool pressed)
             break;
 
         case SDLK_LSHIFT:
-        case SDLK_RSHIFT: matrix_key(0, 0, pressed); break;
-        case SDLK_z: matrix_key(0, 1, pressed); break;
-        case SDLK_x: matrix_key(0, 2, pressed); break;
-        case SDLK_c: matrix_key(0, 3, pressed); break;
-        case SDLK_v: matrix_key(0, 4, pressed); break;
+        case SDLK_RSHIFT: ula.setKey(0, 0, pressed); break;
+        case SDLK_z: ula.setKey(0, 1, pressed); break;
+        case SDLK_x: ula.setKey(0, 2, pressed); break;
+        case SDLK_c: ula.setKey(0, 3, pressed); break;
+        case SDLK_v: ula.setKey(0, 4, pressed); break;
 
         case SDLK_a:
             if (g_keymap != "wasd")
             {
-                matrix_key(1, 0, pressed);
+                ula.setKey(1, 0, pressed);
             }
             break;
         case SDLK_s:
             if (g_keymap != "wasd")
             {
-                matrix_key(1, 1, pressed);
+                ula.setKey(1, 1, pressed);
             }
             break;
         case SDLK_d:
             if (g_keymap != "wasd")
             {
-                matrix_key(1, 2, pressed);
+                ula.setKey(1, 2, pressed);
             }
             break;
-        case SDLK_f: matrix_key(1, 3, pressed); break;
-        case SDLK_g: matrix_key(1, 4, pressed); break;
+        case SDLK_f: ula.setKey(1, 3, pressed); break;
+        case SDLK_g: ula.setKey(1, 4, pressed); break;
 
-        case SDLK_q: matrix_key(2, 0, pressed); break;
+        case SDLK_q: ula.setKey(2, 0, pressed); break;
         case SDLK_w:
             if (g_keymap != "wasd")
             {
-                matrix_key(2, 1, pressed);
+                ula.setKey(2, 1, pressed);
             }
             break;
-        case SDLK_e: matrix_key(2, 2, pressed); break;
-        case SDLK_r: matrix_key(2, 3, pressed); break;
-        case SDLK_t: matrix_key(2, 4, pressed); break;
+        case SDLK_e: ula.setKey(2, 2, pressed); break;
+        case SDLK_r: ula.setKey(2, 3, pressed); break;
+        case SDLK_t: ula.setKey(2, 4, pressed); break;
 
         case SDLK_1:
-        case SDLK_KP_1: matrix_key(3, 0, pressed); break;
+        case SDLK_KP_1: ula.setKey(3, 0, pressed); break;
         case SDLK_2:
-        case SDLK_KP_2: matrix_key(3, 1, pressed); break;
+        case SDLK_KP_2: ula.setKey(3, 1, pressed); break;
         case SDLK_3:
-        case SDLK_KP_3: matrix_key(3, 2, pressed); break;
+        case SDLK_KP_3: ula.setKey(3, 2, pressed); break;
         case SDLK_4:
-        case SDLK_KP_4: matrix_key(3, 3, pressed); break;
+        case SDLK_KP_4: ula.setKey(3, 3, pressed); break;
         case SDLK_5:
-        case SDLK_KP_5: matrix_key(3, 4, pressed); break;
+        case SDLK_KP_5: ula.setKey(3, 4, pressed); break;
 
         case SDLK_0:
-        case SDLK_KP_0: matrix_key(4, 0, pressed); break;
+        case SDLK_KP_0: ula.setKey(4, 0, pressed); break;
         case SDLK_9:
-        case SDLK_KP_9: matrix_key(4, 1, pressed); break;
+        case SDLK_KP_9: ula.setKey(4, 1, pressed); break;
         case SDLK_8:
-        case SDLK_KP_8: matrix_key(4, 2, pressed); break;
+        case SDLK_KP_8: ula.setKey(4, 2, pressed); break;
         case SDLK_7:
-        case SDLK_KP_7: matrix_key(4, 3, pressed); break;
+        case SDLK_KP_7: ula.setKey(4, 3, pressed); break;
         case SDLK_6:
-        case SDLK_KP_6: matrix_key(4, 4, pressed); break;
+        case SDLK_KP_6: ula.setKey(4, 4, pressed); break;
 
-        case SDLK_p: matrix_key(5, 0, pressed); break;
-        case SDLK_o: matrix_key(5, 1, pressed); break;
-        case SDLK_i: matrix_key(5, 2, pressed); break;
-        case SDLK_u: matrix_key(5, 3, pressed); break;
-        case SDLK_y: matrix_key(5, 4, pressed); break;
+        case SDLK_p: ula.setKey(5, 0, pressed); break;
+        case SDLK_o: ula.setKey(5, 1, pressed); break;
+        case SDLK_i: ula.setKey(5, 2, pressed); break;
+        case SDLK_u: ula.setKey(5, 3, pressed); break;
+        case SDLK_y: ula.setKey(5, 4, pressed); break;
 
-        case SDLK_RETURN: matrix_key(6, 0, pressed); break;
-        case SDLK_l: matrix_key(6, 1, pressed); break;
-        case SDLK_k: matrix_key(6, 2, pressed); break;
-        case SDLK_j: matrix_key(6, 3, pressed); break;
-        case SDLK_h: matrix_key(6, 4, pressed); break;
+        case SDLK_RETURN: ula.setKey(6, 0, pressed); break;
+        case SDLK_l: ula.setKey(6, 1, pressed); break;
+        case SDLK_k: ula.setKey(6, 2, pressed); break;
+        case SDLK_j: ula.setKey(6, 3, pressed); break;
+        case SDLK_h: ula.setKey(6, 4, pressed); break;
 
-        case SDLK_SPACE: matrix_key(7, 0, pressed); break;
-        case SDLK_PERIOD: matrix_key(7, 1, pressed); break;
-        case SDLK_m: matrix_key(7, 2, pressed); break;
-        case SDLK_n: matrix_key(7, 3, pressed); break;
-        case SDLK_b: matrix_key(7, 4, pressed); break;
+        case SDLK_SPACE: ula.setKey(7, 0, pressed); break;
+        case SDLK_PERIOD: ula.setKey(7, 1, pressed); break;
+        case SDLK_m: ula.setKey(7, 2, pressed); break;
+        case SDLK_n: ula.setKey(7, 3, pressed); break;
+        case SDLK_b: ula.setKey(7, 4, pressed); break;
 
         case SDLK_LEFT:
             ula.setKempston(pressed ? static_cast<uint8_t>(ula.kempston | 0x02)
@@ -512,77 +457,61 @@ static void apply_spectrum_keys()
         {
             continue;
         }
-        if (ks[m.sc])
+        if (key_down(ks, m.sc))
         {
             ula.setKey(m.row, m.bit, true);
         }
     }
 
     uint8_t joy = 0;
-    if (ks[SDL_SCANCODE_RIGHT])
+    if (key_down(ks, SDL_SCANCODE_RIGHT))
     {
         joy |= 0x01;
     }
-    if (ks[SDL_SCANCODE_LEFT])
+    if (key_down(ks, SDL_SCANCODE_LEFT))
     {
         joy |= 0x02;
     }
-    if (ks[SDL_SCANCODE_DOWN])
+    if (key_down(ks, SDL_SCANCODE_DOWN))
     {
         joy |= 0x04;
     }
-    if (ks[SDL_SCANCODE_UP])
+    if (key_down(ks, SDL_SCANCODE_UP))
     {
         joy |= 0x08;
     }
-    if (ks[SDL_SCANCODE_LALT] || ks[SDL_SCANCODE_RALT])
+    if (key_down(ks, SDL_SCANCODE_LALT) || key_down(ks, SDL_SCANCODE_RALT))
     {
         joy |= 0x10;
     }
     if (g_keymap == "wasd")
     {
-        /* Doom-ish overlay: WASD + arrows move; LCtrl jump/fire.
-         * Also presses Knight Lore keyboard keys (A/Z/X/Q) so menu option 1 works. */
-        if (ks[SDL_SCANCODE_W] || ks[SDL_SCANCODE_UP])
+        if (key_down(ks, SDL_SCANCODE_W) || key_down(ks, SDL_SCANCODE_UP))
         {
             ula.setKey(1, 0, true); /* A = forward */
             joy |= 0x08;
-            joy_hold(3);
         }
-        if (ks[SDL_SCANCODE_S] || ks[SDL_SCANCODE_DOWN])
+        if (key_down(ks, SDL_SCANCODE_S) || key_down(ks, SDL_SCANCODE_DOWN))
         {
             joy |= 0x04;
-            joy_hold(2);
         }
-        if (ks[SDL_SCANCODE_A] || ks[SDL_SCANCODE_LEFT])
+        if (key_down(ks, SDL_SCANCODE_A) || key_down(ks, SDL_SCANCODE_LEFT))
         {
             ula.setKey(0, 1, true); /* Z = left */
             joy |= 0x02;
-            joy_hold(1);
         }
-        if (ks[SDL_SCANCODE_D] || ks[SDL_SCANCODE_RIGHT])
+        if (key_down(ks, SDL_SCANCODE_D) || key_down(ks, SDL_SCANCODE_RIGHT))
         {
             ula.setKey(0, 2, true); /* X = right */
             joy |= 0x01;
-            joy_hold(0);
         }
-        if (ks[SDL_SCANCODE_LCTRL] || ks[SDL_SCANCODE_RCTRL])
+        if (key_down(ks, SDL_SCANCODE_LCTRL) || key_down(ks, SDL_SCANCODE_RCTRL))
         {
             ula.setKey(2, 0, true); /* Q = jump */
             joy |= 0x10;
-            joy_hold(4);
-        }
-    }
-    for (int b = 0; b < 5; b++)
-    {
-        if (g_joy_hold[b] > 0)
-        {
-            joy = static_cast<uint8_t>(joy | (1u << b));
-            g_joy_hold[b]--;
         }
     }
     ula.setKempston(joy);
-    sticky_decay(); /* re-asserts still-sticky taps after memset */
 }
 
 static void pump_input()
@@ -604,7 +533,7 @@ static void pump_input()
                              static_cast<int>(event.key.keysym.scancode),
                              static_cast<int>(event.key.keysym.sym));
                     handle_key(event.key.keysym.sym, true);
-                    sticky_wasd(event.key.keysym.scancode);
+                    latch_scancode(event.key.keysym.scancode);
                 }
                 break;
             case SDL_KEYUP:
@@ -1400,6 +1329,7 @@ int main(int argc, char* argv[])
                 SDL_Delay(static_cast<Uint32>((TARGET_FRAME_US - elapsed_us) / 1000));
             }
             last_frame_time = SDL_GetPerformanceCounter();
+            end_ula_frame_latches();
         }
     }
 
