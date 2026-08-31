@@ -3,11 +3,11 @@
 SDL2 ZX Spectrum 48K/128K emulator. Loads the World of Spectrum-style
 collection from the filesystem **or from a zip archive in-place** (no extract).
 
-Version **0.6**.
+Version **0.7**.
 
 ## Build
 
-Requires SDL2, libzip, zlib, and g++ (C++23):
+Requires SDL2, SDL2_image, libzip, zlib, and g++ (C++23):
 
 ```bash
 make -s -j"$(nproc)"          # debug: -O0 + ASan/UBSan (slow; for bugs)
@@ -22,12 +22,10 @@ because one Spectrum frame can take much more than 20 ms of host time. Use
 on the release binary (selected once at startup; the fast path has no per-opcode
 log check).
 
-The 48K/128K/+3 ULA is **50 Hz PAL** (69 888 T-states/frame). The run loop also
-**sleeps** so one emulated picture takes 20 ms of real time (`SDL_Delay`) — that
-is software pacing, not the panel. Optional `--hz-lock` uses libXrandr to switch
-the output to ~50 Hz and restore on quit (default **off**: NVIDIA+GL often
-fails with a black screen). Prove the mode with `./hz50test --seconds 5` first
-(xrandr CLI, no GL). NTSC Spectrums are 60 Hz; we do not emulate those.
+The 48K/128K/+3 ULA is **50 Hz PAL** (69 888 T-states/frame). The run loop
+**sleeps** so one emulated picture takes 20 ms of wall time (`SDL_Delay`).
+Laptop eDP panels generally cannot do 50 Hz; we do not change RandR modes.
+Window icon: `icons/zxem.svg` and `icons/zxem.png`.
 
 `make -s profile`, run a title, `gprof -b ./zxem gmon.out`, then `make -s release`.
 
@@ -41,7 +39,7 @@ zxem [options] [input…]
 ```
 
 No arguments prints usage (same as `-h` / `--help`). `-v` / `--version`
-prints `zxem 0.6`. Options and inputs may be interleaved.
+prints `zxem 0.7`. Options and inputs may be interleaved.
 
 ```bash
 ./zxem /path/to/game.z80
@@ -58,7 +56,7 @@ prints `zxem 0.6`. Options and inputs may be interleaved.
 | Flag | Default | Meaning |
 |------|---------|---------|
 | `-h`, `--help` | | Usage |
-| `-v`, `--version` | | `zxem 0.6` (never verbose) |
+| `-v`, `--version` | | `zxem 0.7` (never verbose) |
 | `--list` | off | List playable files in a dir/zip to stdout |
 | `--member NAME` | | Substring match inside a zip (prefers snapshots) |
 | `--model MODEL` | spectrum48 | `spectrum48`, `spectrum128`, or `plus3` |

@@ -10,15 +10,15 @@ ZIP_CFLAGS := $(shell $(PKG_CONFIG) --cflags libzip)
 ZIP_LIBS   := $(shell $(PKG_CONFIG) --libs libzip)
 Z_CFLAGS   := $(shell $(PKG_CONFIG) --cflags zlib)
 Z_LIBS     := $(shell $(PKG_CONFIG) --libs zlib)
-XR_CFLAGS  := $(shell $(PKG_CONFIG) --cflags xrandr x11)
-XR_LIBS    := $(shell $(PKG_CONFIG) --libs xrandr x11)
+IMG_CFLAGS := $(shell $(PKG_CONFIG) --cflags SDL2_image)
+IMG_LIBS   := $(shell $(PKG_CONFIG) --libs SDL2_image)
 
 CXXFLAGS_COMMON := -std=gnu++23 -Wall -Wextra -Wpedantic -Wshadow \
 	-fno-omit-frame-pointer -ffunction-sections -fdata-sections \
-	$(SDL_CFLAGS) $(ZIP_CFLAGS) $(Z_CFLAGS) $(XR_CFLAGS) -I src
+	$(SDL_CFLAGS) $(IMG_CFLAGS) $(ZIP_CFLAGS) $(Z_CFLAGS) -I src
 
-LDFLAGS_COMMON := -Wl,--push-state,--as-needed $(SDL_LIBS) $(ZIP_LIBS) $(Z_LIBS) \
-	$(XR_LIBS) -Wl,--pop-state -Wl,--gc-sections -Wl,-z,relro -Wl,-z,now
+LDFLAGS_COMMON := -Wl,--push-state,--as-needed $(SDL_LIBS) $(IMG_LIBS) $(ZIP_LIBS) $(Z_LIBS) \
+	-Wl,--pop-state -Wl,--gc-sections -Wl,-z,relro -Wl,-z,now
 
 CXXFLAGS_DEBUG := $(CXXFLAGS_COMMON) -g3 -O0 \
 	-fsanitize=address,undefined -fno-omit-frame-pointer -rdynamic
@@ -38,9 +38,8 @@ OBJDIR := obj
 TARGET := zxem
 
 LIB_SRCS := $(SRCDIR)/ay.cpp $(SRCDIR)/config.cpp $(SRCDIR)/disk.cpp \
-	$(SRCDIR)/hzlock.cpp $(SRCDIR)/log.cpp $(SRCDIR)/media.cpp \
-	$(SRCDIR)/snapshot.cpp $(SRCDIR)/tape.cpp $(SRCDIR)/ula.cpp \
-	$(SRCDIR)/vfs.cpp $(SRCDIR)/z80.cpp
+	$(SRCDIR)/log.cpp $(SRCDIR)/media.cpp $(SRCDIR)/snapshot.cpp \
+	$(SRCDIR)/tape.cpp $(SRCDIR)/ula.cpp $(SRCDIR)/vfs.cpp $(SRCDIR)/z80.cpp
 MAIN_SRCS := $(SRCDIR)/main.cpp
 SRCS := $(LIB_SRCS) $(MAIN_SRCS)
 OBJS := $(patsubst $(SRCDIR)/%.cpp,$(OBJDIR)/%.o,$(SRCS))
@@ -50,12 +49,9 @@ BUILD_FLAGS := -s V=0 -j$(shell nproc 2>/dev/null || echo 1)
 
 export PKG_CONFIG_PATH ?= $(HOME)/.local/share/pkgconfig:$(HOME)/.local/lib64/pkgconfig:$(HOME)/.local/lib/pkgconfig:$(PKG_CONFIG_PATH)
 
-.PHONY: all clean test tests verify release profile hz50test
+.PHONY: all clean test tests verify release profile
 
-all: $(TARGET) hz50test
-
-hz50test: $(SRCDIR)/hz50test.cpp
-	$(CXX) $(CXXFLAGS) -o $@ $<
+all: $(TARGET)
 
 $(TARGET): $(OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
@@ -67,7 +63,7 @@ $(OBJDIR):
 	mkdir -p $(OBJDIR)
 
 clean:
-	rm -rf $(OBJDIR) $(TARGET) hz50test tests/run_tests
+	rm -rf $(OBJDIR) $(TARGET) tests/run_tests
 
 # --- tests (Catch2) + CLI contracts (pytest) ---
 TEST_BIN := tests/run_tests
@@ -82,7 +78,7 @@ CATCH2_LIBS   := -L$(HOME)/.local/lib64 -L$(HOME)/.local/lib $(shell pkg-config 
 $(TEST_BIN): $(TEST_SRCS) $(LIB_OBJS) | $(OBJDIR)
 	$(CXX) $(CXXFLAGS) -I src $(CATCH2_CFLAGS) -o $@ $(TEST_SRCS) $(LIB_OBJS) $(CATCH2_LIBS) $(LDFLAGS)
 
-test: $(TARGET) hz50test $(TEST_BIN)
+test: $(TARGET) $(TEST_BIN)
 	./$(TEST_BIN)
 	$(PY) -m pytest -q --tb=short tests/test_cli.py
 tests: test
