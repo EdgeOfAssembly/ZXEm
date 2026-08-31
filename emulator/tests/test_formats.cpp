@@ -5,6 +5,7 @@
 #include "z80.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <cstdio>
 #include <cstring>
 #include <vector>
 
@@ -346,4 +347,157 @@ TEST_CASE("uPD765 READ DATA returns mounted EDSK sector")
     ula.fdc.write_data(0xFF);
     REQUIRE((ula.fdc.read_msr() & 0x20) != 0);
     REQUIRE(ula.fdc.read_data() == static_cast<uint8_t>('P'));
+}
+
+static uint8_t z80_ram_pattern(uint32_t i)
+{
+    const uint8_t p = static_cast<uint8_t>(0xA5u ^ (i * 131u) ^ (i >> 8));
+    return (p == 0xED) ? static_cast<uint8_t>(0xEC) : p;
+}
+
+static void fill_48k_pattern(ULA& ula)
+{
+    for (uint32_t i = 0; i < 49152; i++)
+    {
+        ula.write(static_cast<uint16_t>(0x4000u + i), z80_ram_pattern(i));
+    }
+}
+
+static bool slurp_file(const char* path, std::vector<uint8_t>& out)
+{
+    FILE* f = fopen(path, "rb");
+    if (f == nullptr)
+    {
+        return false;
+    }
+    if (fseek(f, 0, SEEK_END) != 0)
+    {
+        fclose(f);
+        return false;
+    }
+    const long n = ftell(f);
+    if (n < 30)
+    {
+        fclose(f);
+        return false;
+    }
+    if (fseek(f, 0, SEEK_SET) != 0)
+    {
+        fclose(f);
+        return false;
+    }
+    out.resize(static_cast<size_t>(n));
+    const size_t got = fread(out.data(), 1, out.size(), f);
+    fclose(f);
+    return got == out.size();
+}
+
+static bool ram48_equal(const ULA& a, const ULA& b)
+{
+    return std::memcmp(a.ram_banks[5], b.ram_banks[5], 16384) == 0 &&
+           std::memcmp(a.ram_banks[2], b.ram_banks[2], 16384) == 0 &&
+           std::memcmp(a.ram_banks[0], b.ram_banks[0], 16384) == 0;
+}
+
+static bool payload_has(const std::vector<uint8_t>& blob,
+                        uint8_t a, uint8_t b, uint8_t c, uint8_t d)
+{
+    if (blob.size() < 34)
+    {
+        return false;
+    }
+    for (size_t i = 30; i + 3 < blob.size(); i++)
+    {
+        if (blob[i] == a && blob[i + 1] == b && blob[i + 2] == c && blob[i + 3] == d)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+TEST_CASE("Z80 v1 round-trip preserves a lone 0xED")
+{
+    Z80 z80;
+    ULA ula;
+    z80.ula = &ula;
+    ula.reset();
+    z80.reset();
+    z80.PC = 0x8000;
+    z80.SP = 0xFFFB;
+    fill_48k_pattern(ula);
+    const uint16_t lone_addr = 0x4000;
+    ula.write(lone_addr, 0xED);
+    for (int i = 1; i <= 8; i++)
+    {
+        ula.write(static_cast<uint16_t>(lone_addr + i), 0x00);
+    }
+
+    const char* path = "/tmp/zxem-med1-lone-ed.z80";
+    REQUIRE(save_z80(path, z80, ula));
+
+    std::vector<uint8_t> blob;
+    REQUIRE(slurp_file(path, blob));
+    REQUIRE(blob.size() >= 36);
+    REQUIRE((blob[12] & 0x20) != 0);
+    REQUIRE(blob[30] == 0xED);
+    REQUIRE(blob[31] == 0x00);
+    REQUIRE(blob[32] == 0xED);
+    REQUIRE(blob[33] == 0xED);
+    REQUIRE(blob[34] == 0x07);
+    REQUIRE(blob[35] == 0x00);
+    REQUIRE_FALSE(payload_has(blob, 0xED, 0xED, 0x01, 0xED));
+
+    Z80 loaded;
+    ULA ula2;
+    loaded.ula = &ula2;
+    ula2.reset();
+    REQUIRE(load_z80(blob.data(), blob.size(), loaded, ula2));
+    REQUIRE(loaded.PC == 0x8000);
+    REQUIRE(ula2.read(lone_addr) == 0xED);
+    REQUIRE(ram48_equal(ula, ula2));
+}
+
+TEST_CASE("Z80 v1 run of eight 0xED compresses and round-trips")
+{
+    Z80 z80;
+    ULA ula;
+    z80.ula = &ula;
+    ula.reset();
+    z80.reset();
+    z80.PC = 0x1234;
+    fill_48k_pattern(ula);
+    const uint16_t run_addr = 0x4000;
+    for (int i = 0; i < 8; i++)
+    {
+        ula.write(static_cast<uint16_t>(run_addr + i), 0xED);
+    }
+
+    const char* path = "/tmp/zxem-med1-ed-run.z80";
+    REQUIRE(save_z80(path, z80, ula));
+
+    std::vector<uint8_t> blob;
+    REQUIRE(slurp_file(path, blob));
+    REQUIRE(blob.size() >= 34);
+    REQUIRE(blob[blob.size() - 4] == 0x00);
+    REQUIRE(blob[blob.size() - 3] == 0xED);
+    REQUIRE(blob[blob.size() - 2] == 0xED);
+    REQUIRE(blob[blob.size() - 1] == 0x00);
+    REQUIRE(blob[30] == 0xED);
+    REQUIRE(blob[31] == 0xED);
+    REQUIRE(blob[32] == 0x08);
+    REQUIRE(blob[33] == 0xED);
+    REQUIRE(payload_has(blob, 0xED, 0xED, 0x08, 0xED));
+
+    Z80 loaded;
+    ULA ula2;
+    loaded.ula = &ula2;
+    ula2.reset();
+    REQUIRE(load_z80(blob.data(), blob.size(), loaded, ula2));
+    REQUIRE(loaded.PC == 0x1234);
+    for (int i = 0; i < 8; i++)
+    {
+        REQUIRE(ula2.read(static_cast<uint16_t>(run_addr + i)) == 0xED);
+    }
+    REQUIRE(ram48_equal(ula, ula2));
 }

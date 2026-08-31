@@ -2,7 +2,8 @@
 #include "log.h"
 #include <cstring>
 
-ULA::ULA() : border(0), beeper(false), tstates(0), frame_tstates(0), line(0), line_tstates(0),
+ULA::ULA() : border(0), beeper(false), tstates(0), frame_tstates(0), frame_irq(false),
+             line(0), line_tstates(0),
              flash(false), flash_counter(0),
              is128(false), plus3(false), trdos_present(false), trdos_paged(false),
              port7ffd(0), port1ffd(0),
@@ -35,6 +36,7 @@ void ULA::reset() {
     beeper = false;
     tstates = 0;
     frame_tstates = 0;
+    frame_irq = false;
     line = 0;
     line_tstates = 0;
     flash = false;
@@ -302,6 +304,7 @@ void ULA::step(int cycles) {
             {
                 line = 0;
                 frame_tstates = 0;
+                frame_irq = true;
                 flash_counter++;
                 if (flash_counter >= 16)
                 {

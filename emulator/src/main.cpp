@@ -11,6 +11,7 @@
 #include <cstring>
 #include <filesystem>
 #include <string>
+#include <atomic>
 #include <csignal>
 #include <sys/stat.h>
 #include <vector>
@@ -82,8 +83,9 @@ static int g_max_frames = -1;
 
 static const int AUDIO_BUFFER_SIZE = 16384;
 static int16_t audio_buffer[AUDIO_BUFFER_SIZE];
-static volatile int audio_write_pos = 0;
-static volatile int audio_read_pos = 0;
+static std::atomic<int> audio_write_pos{0};
+static std::atomic<int> audio_read_pos{0};
+static std::atomic<int16_t> audio_last_sample{0};
 
 static void audio_callback(void*, uint8_t* stream, int len)
 {
@@ -91,30 +93,33 @@ static void audio_callback(void*, uint8_t* stream, int len)
     const int samples = len / 2;
     for (int i = 0; i < samples; i++)
     {
-        const int rp = audio_read_pos;
-        if (rp != audio_write_pos)
+        int rp = audio_read_pos.load(std::memory_order_relaxed);
+        const int wp = audio_write_pos.load(std::memory_order_acquire);
+        if (rp != wp)
         {
-            buf[i] = audio_buffer[rp];
-            audio_read_pos = (rp + 1) % AUDIO_BUFFER_SIZE;
+            const int16_t s = audio_buffer[rp];
+            buf[i] = s;
+            audio_last_sample.store(s, std::memory_order_relaxed);
+            audio_read_pos.store((rp + 1) % AUDIO_BUFFER_SIZE, std::memory_order_release);
         }
         else
         {
-            const float s = ula.currentAudioSample();
-            buf[i] = static_cast<int16_t>(s * 12000.0f);
+            buf[i] = audio_last_sample.load(std::memory_order_relaxed);
         }
     }
 }
 
 static void pushAudioSample(int16_t sample)
 {
-    const int wp = audio_write_pos;
+    const int wp = audio_write_pos.load(std::memory_order_relaxed);
     const int next = (wp + 1) % AUDIO_BUFFER_SIZE;
-    if (next == audio_read_pos)
+    int rp = audio_read_pos.load(std::memory_order_acquire);
+    if (next == rp)
     {
-        audio_read_pos = (audio_read_pos + 1) % AUDIO_BUFFER_SIZE;
+        audio_read_pos.store((rp + 1) % AUDIO_BUFFER_SIZE, std::memory_order_release);
     }
     audio_buffer[wp] = sample;
-    audio_write_pos = next;
+    audio_write_pos.store(next, std::memory_order_release);
 }
 
 static void init_audio()
@@ -154,15 +159,27 @@ static void updateAudio(int tstates)
     }
 }
 
+static uint8_t g_joy_pad = 0;
+
 static void handle_joy_button(int button, bool pressed)
 {
     switch (button)
     {
-        case 0: ula.setKey(7, 0, pressed); break;
-        case 1: ula.setKey(6, 0, pressed); break;
-        case 6: ula.setKey(7, 0, pressed); break;
-        case 7: ula.setKey(6, 0, pressed); break;
-        default: break;
+        case 0:
+        case 1:
+        case 6:
+        case 7:
+            if (pressed)
+            {
+                g_joy_pad = static_cast<uint8_t>(g_joy_pad | 0x10);
+            }
+            else
+            {
+                g_joy_pad = static_cast<uint8_t>(g_joy_pad & ~0x10);
+            }
+            break;
+        default:
+            break;
     }
 }
 
@@ -171,18 +188,27 @@ static void handle_joy_axis(int axis, int16_t value)
     const int DEADZONE = 4096;
     if (axis == 0)
     {
-        const bool left = value < -DEADZONE;
-        const bool right = value > DEADZONE;
-        uint8_t k = static_cast<uint8_t>(ula.kempston & ~0x03);
-        if (right)
+        g_joy_pad = static_cast<uint8_t>(g_joy_pad & ~0x03);
+        if (value > DEADZONE)
         {
-            k = static_cast<uint8_t>(k | 0x01);
+            g_joy_pad = static_cast<uint8_t>(g_joy_pad | 0x01);
         }
-        if (left)
+        else if (value < -DEADZONE)
         {
-            k = static_cast<uint8_t>(k | 0x02);
+            g_joy_pad = static_cast<uint8_t>(g_joy_pad | 0x02);
         }
-        ula.setKempston(k);
+    }
+    else if (axis == 1)
+    {
+        g_joy_pad = static_cast<uint8_t>(g_joy_pad & ~0x0C);
+        if (value > DEADZONE)
+        {
+            g_joy_pad = static_cast<uint8_t>(g_joy_pad | 0x04);
+        }
+        else if (value < -DEADZONE)
+        {
+            g_joy_pad = static_cast<uint8_t>(g_joy_pad | 0x08);
+        }
     }
 }
 
@@ -511,7 +537,7 @@ static void apply_spectrum_keys()
             joy |= 0x10;
         }
     }
-    ula.setKempston(joy);
+    ula.setKempston(static_cast<uint8_t>(joy | g_joy_pad));
 }
 
 static void pump_input()
@@ -1271,9 +1297,8 @@ int main(int argc, char* argv[])
                 pump_input();
             }
 
-            if (ula.frame_tstates >= TSTATES_PER_FRAME)
+            if (ula.take_frame_irq())
             {
-                ula.frame_tstates -= TSTATES_PER_FRAME;
                 if (z80.IFF1)
                 {
                     z80.IFF1 = z80.IFF2 = false;

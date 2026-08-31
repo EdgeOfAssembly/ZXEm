@@ -18,6 +18,7 @@ public:
     bool beeper;
     int tstates;
     int frame_tstates;
+    bool frame_irq;
     int line;
     int line_tstates;
     bool flash;
@@ -43,6 +44,17 @@ public:
     uint8_t ioRead(uint16_t port);
     void ioWrite(uint16_t port, uint8_t val);
     void step(int cycles);
+    /**
+     * @brief Consume the pending maskable frame INT (set when the raster wraps line 312→0).
+     * @return true if a frame INT was pending; the flag is cleared.
+     * @note Poll this instead of @c frame_tstates — wrap zeroes the counter in the same step.
+     */
+    bool take_frame_irq()
+    {
+        const bool pending = frame_irq;
+        frame_irq = false;
+        return pending;
+    }
     /**
      * @brief Decode the 256×192 display file into ARGB8888 (one pixel per uint32).
      * @param[out] pixels Destination; at least 256×192 entries if pitch is 256×4.

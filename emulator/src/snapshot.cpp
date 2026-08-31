@@ -39,6 +39,13 @@ int z80_page_to_bank(uint8_t page, bool is128k)
     return -1;
 }
 
+/**
+ * @brief Expand Z80 ED-ED RLE into @p dest (v1 marker-terminated or v2/v3 sized).
+ * @return true if @p dest_size bytes were produced.
+ *
+ * A lone 0xED (next byte not 0xED) is one literal. @c ED ED xx yy repeats @c yy
+ * @c xx times (@c xx != 0). @c ED ED 00 ends the stream (v1 @c 00 ED ED 00).
+ */
 static bool decompress_ed_ed(ByteCursor& c, uint8_t* dest, uint32_t dest_size)
 {
     uint32_t pos = 0;
@@ -54,9 +61,11 @@ static bool decompress_ed_ed(ByteCursor& c, uint8_t* dest, uint32_t dest_size)
             dest[pos++] = b;
             continue;
         }
+
         uint8_t d = 0;
         if (!c.get8(d))
         {
+            dest[pos++] = 0xED;
             break;
         }
         if (d != 0xED)
@@ -68,24 +77,87 @@ static bool decompress_ed_ed(ByteCursor& c, uint8_t* dest, uint32_t dest_size)
             }
             continue;
         }
+
         uint8_t rep = 0;
-        uint8_t val = 0;
-        if (!c.get8(rep) || !c.get8(val))
+        if (!c.get8(rep))
         {
             break;
         }
         if (rep == 0x00)
         {
-            /* End marker ED ED 00 ED (v1) — stop. */
+            uint8_t tail = 0;
+            (void)c.get8(tail);
             break;
         }
-        const uint32_t count = rep ? rep : 256u;
-        for (uint32_t i = 0; i < count && pos < dest_size; i++)
+        uint8_t val = 0;
+        if (!c.get8(val))
+        {
+            break;
+        }
+        for (uint32_t i = 0; i < static_cast<uint32_t>(rep) && pos < dest_size; i++)
         {
             dest[pos++] = val;
         }
     }
     return pos >= dest_size;
+}
+
+/**
+ * @brief Z80 v1 RLE plus terminator @c 00 ED ED 00.
+ *
+ * Runs of 5+ equal bytes, or 2+ 0xED, become @c ED ED count value. A lone 0xED
+ * is one byte; the next byte is never taken into a run (else @c ED ED would be
+ * a run header).
+ */
+static void compress_ed_ed(const uint8_t* src, uint32_t n, std::vector<uint8_t>& out)
+{
+    bool after_lone_ed = false;
+    uint32_t i = 0;
+    while (i < n)
+    {
+        if (after_lone_ed)
+        {
+            out.push_back(src[i]);
+            after_lone_ed = false;
+            i++;
+            continue;
+        }
+
+        const uint8_t v = src[i];
+        uint32_t run = 1;
+        while (i + run < n && src[i + run] == v && run < 255u)
+        {
+            run++;
+        }
+
+        if (run >= 5u || (v == 0xED && run >= 2u))
+        {
+            out.push_back(0xED);
+            out.push_back(0xED);
+            out.push_back(static_cast<uint8_t>(run));
+            out.push_back(v);
+            i += run;
+            continue;
+        }
+
+        if (v == 0xED)
+        {
+            out.push_back(0xED);
+            after_lone_ed = true;
+            i++;
+            continue;
+        }
+
+        for (uint32_t k = 0; k < run; k++)
+        {
+            out.push_back(v);
+        }
+        i += run;
+    }
+    out.push_back(0x00);
+    out.push_back(0xED);
+    out.push_back(0xED);
+    out.push_back(0x00);
 }
 
 static void parse_z80_v1_header(const uint8_t header[30], Z80& z80)
@@ -324,41 +396,10 @@ bool save_z80(const char* path, const Z80& z80, const ULA& ula)
     memcpy(linear + 0x4000, ula.ram_banks[2], 16384);
     memcpy(linear + 0x8000, ula.ram_banks[ula.is128 ? (ula.port7ffd & 7) : 0], 16384);
 
-    uint16_t addr = 0;
-    while (addr < 49152)
-    {
-        const uint8_t v = linear[addr];
-        uint16_t run = 1;
-        while (static_cast<uint32_t>(addr) + run < 49152u && linear[addr + run] == v && run < 255)
-        {
-            run++;
-        }
-        if (run >= 5 || (v == 0xED && run >= 2))
-        {
-            fputc(0xED, f);
-            fputc(0xED, f);
-            fputc(run & 0xFF, f);
-            fputc(v, f);
-            addr = static_cast<uint16_t>(addr + run);
-        }
-        else
-        {
-            for (uint16_t i = 0; i < run; i++)
-            {
-                const uint8_t b = linear[addr + i];
-                fputc(b, f);
-                if (b == 0xED)
-                {
-                    fputc(0xED, f);
-                }
-            }
-            addr = static_cast<uint16_t>(addr + run);
-        }
-    }
-    fputc(0xED, f);
-    fputc(0xED, f);
-    fputc(0x00, f);
-    fputc(0xED, f);
+    std::vector<uint8_t> compressed;
+    compressed.reserve(49152);
+    compress_ed_ed(linear, 49152, compressed);
+    fwrite(compressed.data(), 1, compressed.size(), f);
     fclose(f);
     return true;
 }

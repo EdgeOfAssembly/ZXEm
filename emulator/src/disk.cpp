@@ -582,6 +582,14 @@ void Upd765::start_command()
         cmd_got_ = 0;
         return;
     }
+    if (op == 0x05 || op == 0x09)
+    {
+        /* WRITE DATA / WRITE DELETED — not implemented. */
+        log_warn("uPD765: write command 0x%02X not implemented", cmd_[0]);
+        result_st(0x40, 0x02, 0x00, cmd_[2], cmd_[3], cmd_[4], cmd_[5]); /* AT, NW */
+        cmd_got_ = 0;
+        return;
+    }
     if (op == 0x06 || op == 0x0C)
     {
         const uint8_t c = cmd_[2];
@@ -632,10 +640,6 @@ uint8_t Upd765::read_data()
         if (exec_pos_ >= exec_.size())
         {
             result_st(0x00, 0x00, 0x00, cmd_[2], cmd_[3], cmd_[4], cmd_[5]);
-            if (res_len_ > 0)
-            {
-                return result_[res_pos_++];
-            }
             return 0xFF;
         }
         const uint8_t b = exec_[exec_pos_++];
@@ -818,6 +822,25 @@ void Vg93::write_command(uint8_t val)
         intrq_ = true;
         status_ = (track == 0) ? 0x04 : 0x00;
         return;
+    }
+    /* WRITE SECTOR 0xA0 / WRITE TRACK 0xF0: not implemented — do not fake OK. */
+    if ((val & 0xE0) == 0xA0 || (val & 0xF0) == 0xF0)
+    {
+        log_warn("VG93: write/format 0x%02X not implemented (write-protect)", val);
+        status_ = 0x40; /* WP */
+        if (track == 0)
+        {
+            status_ = static_cast<uint8_t>(status_ | 0x04);
+        }
+        drq_ = false;
+        intrq_ = true;
+        return;
+    }
+    log_warn("VG93: unknown command 0x%02X", val);
+    status_ = 0x10; /* RNF / not found */
+    if (track == 0)
+    {
+        status_ = static_cast<uint8_t>(status_ | 0x04);
     }
     intrq_ = true;
 }
