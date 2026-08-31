@@ -7,6 +7,12 @@ public:
     AY38912();
     void reset();
     void writeReg(uint8_t reg, uint8_t val);
+    /**
+     * @brief Read an AY-3-8910 register with unused bits as 0.
+     * @param[in] reg Index 0..15.
+     * @return Masked value; 0xFF if @p reg is out of range.
+     * @note Storage keeps the written byte; only the read path is masked.
+     */
     uint8_t readReg(uint8_t reg) const;
     /** @brief Latch register index (port 0xFFFD). */
     void select(uint8_t reg);

@@ -42,7 +42,7 @@ def test_version_flags() -> None:
         p = run([flag])
         assert p.returncode == 0, flag
         assert "zxem 0.7" in p.stdout
-        assert "verbose" not in p.stdout.lower() or "0.2" in p.stdout
+        assert "verbose" not in p.stdout.lower()
 
 
 def test_unknown_option_nonzero() -> None:

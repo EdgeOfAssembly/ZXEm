@@ -8,6 +8,8 @@
 
 [emulator]
 ; Path to the .z80 snapshot to load on startup.
+; Quote the value if it contains # or ; (those start comments when unquoted):
+;   game = "/mnt/games/Foo #1/bar.z80"
 game = /tmp/reverse/Manic_Miner_1983_Bug_Byte_Software.z80
 
 ; Machine model to emulate. Currently only 'spectrum48' is supported.

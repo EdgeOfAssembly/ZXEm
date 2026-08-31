@@ -24,6 +24,12 @@ enum class LogLevel : int
  *
  * Logging is ON by default (info → stderr). Disable with --no-log.
  * Instruction/I/O traces are opt-in (very noisy).
+ *
+ * Optional log-file buffering: every line is written immediately, but
+ * @c fflush is applied at once for @c error and @c warn, every 256 lines
+ * for @c info / @c debug / @c trace, and on file close / destructor so the
+ * tail is not lost. stderr is not extra-flushed (a TTY is already
+ * line-buffered on newline).
  */
 class Log
 {
@@ -39,6 +45,7 @@ public:
     /**
      * @brief Also write to @p path (created/truncated). Empty path closes the file.
      * @return false if the file could not be opened.
+     * @note Closing flushes any buffered @c info / @c debug / @c trace lines.
      */
     bool set_file(const char* path);
 
@@ -47,6 +54,11 @@ public:
     bool trace_cpu() const;
     bool trace_io() const;
 
+    /**
+     * @brief Format and emit one log line to stderr and the optional file.
+     * @note File @c fflush is immediate for @c error / @c warn; batched
+     *       (256 lines) for lower levels. stderr is not extra-flushed.
+     */
     void vlog(LogLevel level, const char* fmt, va_list ap);
     void log(LogLevel level, const char* fmt, ...);
 
@@ -59,12 +71,16 @@ private:
     Log(const Log&) = delete;
     Log& operator=(const Log&) = delete;
 
+    void close_file();
+
     bool enabled_ = true;
     bool trace_cpu_ = false;
     bool trace_io_ = false;
     LogLevel level_ = LogLevel::info;
     FILE* file_ = nullptr;
     std::string file_path_;
+    unsigned unflushed_lines_ = 0;
+    static constexpr unsigned kFileFlushInterval = 256;
 };
 
 void log_error(const char* fmt, ...);

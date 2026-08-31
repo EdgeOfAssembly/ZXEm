@@ -1,5 +1,7 @@
 #include "ay.h"
+#include "ula.h"
 
+#include <cmath>
 #include <catch2/catch_test_macros.hpp>
 
 namespace
@@ -59,4 +61,36 @@ TEST_CASE("AY envelope shape 4 (C=0 attack) holds at 0 not 15")
     REQUIRE(peak > 0.1f);
     ay.step(AY38912::CLOCK_DIV * 32);
     REQUIRE(ay.sample() == 0.0f);
+}
+
+TEST_CASE("AY readReg masks unused bits")
+{
+    AY38912 ay;
+    ay.writeReg(1, 0xFF);
+    REQUIRE(ay.readReg(1) == 0x0F);
+    ay.writeReg(6, 0xFF);
+    REQUIRE(ay.readReg(6) == 0x1F);
+    ay.writeReg(13, 0xFF);
+    REQUIRE(ay.readReg(13) == 0x0F);
+    ay.writeReg(0, 0xA5);
+    REQUIRE(ay.readReg(0) == 0xA5);
+}
+
+TEST_CASE("AY mix amplitude exceeds beeper at full channel volume")
+{
+    /* Mixer 0x3F: tone+noise off → DC at each channel volume. */
+    ULA ula;
+    ula.ay.writeReg(7, 0x3F);
+    ula.ay.writeReg(8, 15);
+    ula.ay.writeReg(9, 0);
+    ula.ay.writeReg(10, 0);
+    ula.beeper_state = false;
+    const float ay_only = std::fabs(ula.currentAudioSample());
+
+    ula.ay.writeReg(8, 0);
+    ula.beeper_state = true;
+    const float beep_only = std::fabs(ula.currentAudioSample());
+
+    /* kAyMix 0.70 vs kBeepAmp 0.10: one full AY channel must dominate EAR. */
+    REQUIRE(ay_only > beep_only);
 }

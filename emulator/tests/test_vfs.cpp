@@ -27,6 +27,36 @@ TEST_CASE("vfs_is_playable_name accepts ZX extensions")
     REQUIRE_FALSE(vfs_is_playable_name("Games/"));
 }
 
+TEST_CASE("vfs_read loads a real file whose name contains #")
+{
+    char dir[] = "/tmp/zxem-vfs-XXXXXX";
+    REQUIRE(mkdtemp(dir) != nullptr);
+    const std::string path = std::string(dir) + "/hi#there.tap";
+    FILE* f = fopen(path.c_str(), "wb");
+    REQUIRE(f != nullptr);
+    const char payload[] = "TAP";
+    REQUIRE(fwrite(payload, 1, 3, f) == 3);
+    fclose(f);
+
+    std::string archive;
+    std::string member;
+    REQUIRE_FALSE(vfs_split_spec(path, archive, member));
+    REQUIRE(archive == path);
+    REQUIRE(member.empty());
+
+    VfsBlob blob;
+    REQUIRE(vfs_read(path, blob));
+    REQUIRE(blob.data.size() == 3);
+    REQUIRE(blob.data[0] == 'T');
+    REQUIRE(blob.data[1] == 'A');
+    REQUIRE(blob.data[2] == 'P');
+    REQUIRE(blob.member.empty());
+    REQUIRE(blob.name == "hi#there.tap");
+
+    unlink(path.c_str());
+    rmdir(dir);
+}
+
 TEST_CASE("vfs_read loads a zip member without extracting to disk")
 {
     char dir[] = "/tmp/zxem-vfs-XXXXXX";

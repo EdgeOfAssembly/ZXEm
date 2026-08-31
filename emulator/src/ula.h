@@ -150,13 +150,18 @@ public:
     void setKey(int row, int bit, bool pressed);
     void setKempston(uint8_t v) { kempston = v; }
 
-    uint64_t beeper_transition_tstates;
-    uint64_t last_beeper_state;
     bool beeper_state;
-    bool beeper_changed;
     /** @brief I/O contention charged in ioRead/ioWrite; consumed by Z80. */
     int extra_wait = 0;
+    /**
+     * @brief Set MIC/EAR beeper level from ULA port bit 4.
+     * @param[in] on true → high (EAR bit set).
+     */
     void beeperSet(bool on);
+    /**
+     * @brief Mix ULA beeper with AY-3-8912 output.
+     * @return Combined sample; DC blocking is applied by the host, not here.
+     */
     float currentAudioSample() const;
 
     int t_line() const { return timing.t_line; }

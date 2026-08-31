@@ -16,13 +16,22 @@ Log& Log::instance()
 
 Log::Log() = default;
 
+void Log::close_file()
+{
+    if (file_ == nullptr)
+    {
+        return;
+    }
+    fflush(file_);
+    fclose(file_);
+    file_ = nullptr;
+    file_path_.clear();
+    unflushed_lines_ = 0;
+}
+
 Log::~Log()
 {
-    if (file_ != nullptr)
-    {
-        fclose(file_);
-        file_ = nullptr;
-    }
+    close_file();
 }
 
 void Log::set_enabled(bool on)
@@ -47,12 +56,7 @@ LogLevel Log::level() const
 
 bool Log::set_file(const char* path)
 {
-    if (file_ != nullptr)
-    {
-        fclose(file_);
-        file_ = nullptr;
-        file_path_.clear();
-    }
+    close_file();
     if (path == nullptr || path[0] == '\0')
     {
         return true;
@@ -164,11 +168,18 @@ void Log::vlog(LogLevel level, const char* fmt, va_list ap)
              tm_utc.tm_hour, tm_utc.tm_min, tm_utc.tm_sec,
              ts.tv_nsec / 1000000L);
 
+    // TTY stderr is already line-buffered on '\n'; do not extra-fflush.
     fprintf(stderr, "zxem[%s] %s %s\n", tbuf, level_name(level), body);
     if (file_ != nullptr)
     {
         fprintf(file_, "zxem[%s] %s %s\n", tbuf, level_name(level), body);
-        fflush(file_);
+        ++unflushed_lines_;
+        const bool urgent = (level == LogLevel::error || level == LogLevel::warn);
+        if (urgent || unflushed_lines_ >= kFileFlushInterval)
+        {
+            fflush(file_);
+            unflushed_lines_ = 0;
+        }
     }
 }
 

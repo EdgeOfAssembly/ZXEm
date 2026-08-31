@@ -61,8 +61,17 @@ void AY38912::writeReg(uint8_t reg, uint8_t val) {
     }
 }
 
-uint8_t AY38912::readReg(uint8_t reg) const {
-    if (reg < 16) return regs[reg];
+uint8_t AY38912::readReg(uint8_t reg) const
+{
+    /* Unused bits read as 0 (AY-3-8910). Storage is unmasked. */
+    static constexpr uint8_t kReadMask[16] = {
+        0xFF, 0x0F, 0xFF, 0x0F, 0xFF, 0x0F, 0x1F, 0xFF,
+        0x1F, 0x1F, 0x1F, 0xFF, 0xFF, 0x0F, 0xFF, 0xFF
+    };
+    if (reg < 16)
+    {
+        return static_cast<uint8_t>(regs[reg] & kReadMask[reg]);
+    }
     return 0xFF;
 }
 

@@ -132,12 +132,18 @@ bool vfs_split_spec(const std::string& spec, std::string& archive, std::string& 
     archive.clear();
     member.clear();
 
+    /* archive.zip#Games/foo.tap — only if the prefix exists as a zip file.
+     * Otherwise '#' is part of a plain path (e.g. "Foo #1.tap"). */
     const auto hash = spec.find('#');
     if (hash != std::string::npos)
     {
-        archive = spec.substr(0, hash);
-        member = spec.substr(hash + 1);
-        return true;
+        const std::string prefix = spec.substr(0, hash);
+        if (vfs_is_zip(prefix))
+        {
+            archive = prefix;
+            member = spec.substr(hash + 1);
+            return true;
+        }
     }
 
     /* archive.zip:Games/foo.tap — only if the prefix exists as a zip file. */

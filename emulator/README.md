@@ -142,8 +142,9 @@ Knight Lore: **1** then **0** (keyboard) or **2** then **0** (Kempston); both wo
 | arrows | Kempston (also with default keymap) |
 | Esc | Quit |
 | F1 | Reload |
-| F5 / F9 | Save `savestate.z80` |
-| F10 | Load `savestate.z80` |
+| F5 | Save `savestate.z80` |
+| F9 | Load `savestate.z80` |
+| F10 | Load `savestate.z80` (alias) |
 
 ## Legal
 

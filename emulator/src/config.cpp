@@ -1,8 +1,15 @@
+/**
+ * @file config.cpp
+ * @brief INI loader: quote-aware comments and strtol integers.
+ */
+
 #include "config.h"
+
+#include <cctype>
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
-#include <cctype>
-#include <algorithm>
+#include <limits>
 
 std::string Config::normalize(const std::string& s) {
     std::string r;
@@ -20,6 +27,35 @@ static std::string trim(const std::string& s) {
     return s.substr(start, end - start + 1);
 }
 
+/**
+ * @brief Truncate @p line at the first `;` or `#` that is not inside quotes.
+ *
+ * Single- and double-quoted spans are honoured so paths like
+ * `"/mnt/games/Foo #1/bar.z80"` keep the hash. Quotes themselves are left
+ * in place for the caller to strip after trim.
+ */
+static void strip_ini_comment(char* line)
+{
+    bool in_single = false;
+    bool in_double = false;
+    for (char* c = line; *c != '\0'; ++c)
+    {
+        if (*c == '"' && !in_single)
+        {
+            in_double = !in_double;
+        }
+        else if (*c == '\'' && !in_double)
+        {
+            in_single = !in_single;
+        }
+        else if (!in_single && !in_double && (*c == ';' || *c == '#'))
+        {
+            *c = '\0';
+            break;
+        }
+    }
+}
+
 bool Config::load(const char* path) {
     FILE* f = fopen(path, "r");
     if (!f) return false;
@@ -27,15 +63,7 @@ bool Config::load(const char* path) {
     char line[1024];
     std::string section = "global";
     while (fgets(line, sizeof(line), f)) {
-        // Strip comments
-        char* c = line;
-        while (*c) {
-            if (*c == ';' || *c == '#') {
-                *c = '\0';
-                break;
-            }
-            c++;
-        }
+        strip_ini_comment(line);
 
         // Trim whitespace from both ends
         std::string s = trim(line);
@@ -90,7 +118,31 @@ int Config::getInt(const char* section, const char* key, int defaultValue) const
     if (sit == data_.end()) return defaultValue;
     auto kit = sit->second.find(normalize(key));
     if (kit == sit->second.end()) return defaultValue;
-    return std::atoi(kit->second.c_str());
+
+    const char* const start = kit->second.c_str();
+    const char* p = start;
+    while (*p != '\0' && std::isspace(static_cast<unsigned char>(*p)))
+    {
+        ++p;
+    }
+    if (*p != '+' && *p != '-' && !std::isdigit(static_cast<unsigned char>(*p)))
+    {
+        return defaultValue;
+    }
+
+    char* end = nullptr;
+    errno = 0;
+    const long v = std::strtol(start, &end, 10);
+    if (end == start || errno == ERANGE)
+    {
+        return defaultValue;
+    }
+    if (v > static_cast<long>(std::numeric_limits<int>::max()) ||
+        v < static_cast<long>(std::numeric_limits<int>::min()))
+    {
+        return defaultValue;
+    }
+    return static_cast<int>(v);
 }
 
 bool Config::getBool(const char* section, const char* key, bool defaultValue) const {

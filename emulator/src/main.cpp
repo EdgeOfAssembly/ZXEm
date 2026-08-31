@@ -53,6 +53,7 @@ static SDL_Texture* texture = nullptr;
 static SDL_AudioDeviceID audio_dev = 0;
 static SDL_Joystick* joystick = nullptr;
 static bool running = true;
+/** @brief 44100 samples per ula.cpu_hz() T-states (48K 3.5e6 / 128K 3.5469e6), not a fixed 79 T/sample. */
 static const int SAMPLE_RATE = 44100;
 static int g_scale = 3;
 
@@ -142,8 +143,10 @@ static void init_audio()
     }
 }
 
-/** @brief Bresenham T-state accumulator: emit 44100 samples per cpu_hz. */
+/** @brief Bresenham T-state accumulator: emit SAMPLE_RATE samples per ula.cpu_hz() T-states (48K 3.5e6 / 128K 3.5469e6), not a fixed 79 T/sample. */
 static int64_t audio_t_accum = 0;
+static float audio_dc_x1 = 0.0f;
+static float audio_dc_y1 = 0.0f;
 
 static void updateAudio(int tstates)
 {
@@ -156,9 +159,11 @@ static void updateAudio(int tstates)
     while (audio_t_accum >= hz)
     {
         audio_t_accum -= hz;
-        ula.beeper_changed = false;
-        const float s = ula.currentAudioSample();
-        pushAudioSample(static_cast<int16_t>(s * 12000.0f));
+        const float x = ula.currentAudioSample();
+        const float y = x - audio_dc_x1 + 0.995f * audio_dc_y1;
+        audio_dc_x1 = x;
+        audio_dc_y1 = y;
+        pushAudioSample(static_cast<int16_t>(y * 12000.0f));
     }
 }
 
@@ -212,6 +217,31 @@ static void handle_joy_axis(int axis, int16_t value)
         {
             g_joy_pad = static_cast<uint8_t>(g_joy_pad | 0x08);
         }
+    }
+}
+
+/**
+ * @brief Map an SDL hat value onto Kempston direction bits in g_joy_pad.
+ * @param value SDL_HAT_* bitmask (centered clears the four direction bits).
+ */
+static void handle_joy_hat(uint8_t value)
+{
+    g_joy_pad = static_cast<uint8_t>(g_joy_pad & ~0x0F);
+    if ((value & SDL_HAT_RIGHT) != 0)
+    {
+        g_joy_pad = static_cast<uint8_t>(g_joy_pad | 0x01);
+    }
+    if ((value & SDL_HAT_LEFT) != 0)
+    {
+        g_joy_pad = static_cast<uint8_t>(g_joy_pad | 0x02);
+    }
+    if ((value & SDL_HAT_DOWN) != 0)
+    {
+        g_joy_pad = static_cast<uint8_t>(g_joy_pad | 0x04);
+    }
+    if ((value & SDL_HAT_UP) != 0)
+    {
+        g_joy_pad = static_cast<uint8_t>(g_joy_pad | 0x08);
     }
 }
 
@@ -295,7 +325,6 @@ static void handle_key(SDL_Keycode key, bool pressed)
             }
             break;
         case SDLK_F5:
-        case SDLK_F9:
             if (pressed)
             {
                 const char* path = "savestate.z80";
@@ -309,6 +338,7 @@ static void handle_key(SDL_Keycode key, bool pressed)
                 }
             }
             break;
+        case SDLK_F9:
         case SDLK_F10:
             if (pressed)
             {
@@ -590,6 +620,29 @@ static void pump_input()
                 break;
             case SDL_JOYAXISMOTION:
                 handle_joy_axis(event.jaxis.axis, event.jaxis.value);
+                break;
+            case SDL_JOYHATMOTION:
+                handle_joy_hat(event.jhat.value);
+                break;
+            case SDL_JOYDEVICEADDED:
+                if (joystick == nullptr)
+                {
+                    joystick = SDL_JoystickOpen(event.jdevice.which);
+                    if (joystick)
+                    {
+                        log_info("opened joystick: %s", SDL_JoystickName(joystick));
+                    }
+                }
+                break;
+            case SDL_JOYDEVICEREMOVED:
+                if (joystick != nullptr
+                    && event.jdevice.which == SDL_JoystickInstanceID(joystick))
+                {
+                    log_info("joystick removed");
+                    SDL_JoystickClose(joystick);
+                    joystick = nullptr;
+                    g_joy_pad = 0;
+                }
                 break;
             default:
                 break;

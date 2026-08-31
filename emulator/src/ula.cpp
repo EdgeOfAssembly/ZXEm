@@ -1,6 +1,31 @@
 #include "ula.h"
 #include "log.h"
+#include <array>
 #include <cstring>
+
+namespace
+{
+constexpr float kBeepAmp = 0.10f;
+constexpr float kAyMix = 0.70f;
+
+constexpr uint32_t kPalette[16] = {
+    0xFF000000, 0xFF0000CD, 0xFFCD0000, 0xFFCD00CD,
+    0xFF00CD00, 0xFF00CDCD, 0xFFCDCD00, 0xFFCDCDCD,
+    0xFF000000, 0xFF0000FF, 0xFFFF0000, 0xFFFF00FF,
+    0xFF00FF00, 0xFF00FFFF, 0xFFFFFF00, 0xFFFFFFFF
+};
+
+constexpr std::array<uint16_t, ULA::SCREEN_HEIGHT> kLineBmp = []()
+{
+    std::array<uint16_t, ULA::SCREEN_HEIGHT> t{};
+    for (int y = 0; y < ULA::SCREEN_HEIGHT; y++)
+    {
+        t[static_cast<size_t>(y)] = static_cast<uint16_t>(
+            ((y & 0xC0) << 5) | ((y & 0x07) << 8) | ((y & 0x38) << 2));
+    }
+    return t;
+}();
+}
 
 ULA::ULA() : border(0), beeper(false), tstates(0), frame_tstates(0), frame_irq(false),
              line(0), line_tstates(0),
@@ -8,7 +33,7 @@ ULA::ULA() : border(0), beeper(false), tstates(0), frame_tstates(0), frame_irq(f
              is128(false), plus3(false), trdos_present(false), trdos_paged(false),
              port7ffd(0), port1ffd(0),
              kempston(0),
-             beeper_transition_tstates(0), last_beeper_state(0), beeper_state(false), beeper_changed(false),
+             beeper_state(false),
              extra_wait(0) {
     timing = kTiming48;
     reset();
@@ -45,10 +70,7 @@ void ULA::reset() {
     flash = false;
     flash_counter = 0;
     kempston = 0;
-    beeper_transition_tstates = 0;
-    last_beeper_state = 0;
     beeper_state = false;
-    beeper_changed = false;
     extra_wait = 0;
     port7ffd = 0;
     port1ffd = 0;
@@ -186,18 +208,16 @@ uint8_t ULA::ioRead(uint16_t port) {
     return floating_bus();
 }
 
-void ULA::beeperSet(bool on) {
-    if (beeper_state != on) {
-        beeper_state = on;
-        beeper_transition_tstates = (uint64_t)tstates;
-        beeper_changed = true;
-    }
+void ULA::beeperSet(bool on)
+{
+    beeper_state = on;
     beeper = on;
 }
 
-float ULA::currentAudioSample() const {
-    float beep = beeper_state ? 0.25f : -0.25f;
-    float ay_s = ay.sample() * 0.35f;
+float ULA::currentAudioSample() const
+{
+    const float beep = beeper_state ? kBeepAmp : -kBeepAmp;
+    const float ay_s = ay.sample() * kAyMix;
     return beep + ay_s;
 }
 
@@ -333,25 +353,8 @@ void ULA::step(int cycles) {
 
 
 
-void ULA::renderFrame(uint32_t* pixels, int pitch) {
-    static const uint32_t palette[16] = {
-        0xFF000000, 0xFF0000CD, 0xFFCD0000, 0xFFCD00CD,
-        0xFF00CD00, 0xFF00CDCD, 0xFFCDCD00, 0xFFCDCDCD,
-        0xFF000000, 0xFF0000FF, 0xFFFF0000, 0xFFFF00FF,
-        0xFF00FF00, 0xFF00FFFF, 0xFFFFFF00, 0xFFFFFFFF
-    };
-    static uint16_t line_bmp[SCREEN_HEIGHT];
-    static bool line_bmp_ready = false;
-    if (!line_bmp_ready)
-    {
-        for (int y = 0; y < SCREEN_HEIGHT; y++)
-        {
-            line_bmp[y] = static_cast<uint16_t>(
-                ((y & 0xC0) << 5) | ((y & 0x07) << 8) | ((y & 0x38) << 2));
-        }
-        line_bmp_ready = true;
-    }
-
+void ULA::renderFrame(uint32_t* pixels, int pitch)
+{
     const int screen_bank = (is128 && (port7ffd & 0x08)) ? 7 : 5;
     const uint8_t* const scr = ram_banks[screen_bank];
     const int stride = pitch / 4;
@@ -361,7 +364,7 @@ void ULA::renderFrame(uint32_t* pixels, int pitch) {
      * border on that scanline for a future 352-wide blit; do not expand here. */
     for (int y = 0; y < SCREEN_HEIGHT; y++)
     {
-        const uint8_t* bits = scr + line_bmp[y];
+        const uint8_t* bits = scr + kLineBmp[static_cast<size_t>(y)];
         const uint8_t* attrs = scr + 0x1800 + ((y >> 3) << 5);
         uint32_t* dst = pixels + y * stride;
         for (int col = 0; col < 32; col++)
@@ -377,8 +380,8 @@ void ULA::renderFrame(uint32_t* pixels, int pitch) {
                 ink = paper;
                 paper = tmp;
             }
-            const uint32_t c1 = palette[ink];
-            const uint32_t c0 = palette[paper];
+            const uint32_t c1 = kPalette[ink];
+            const uint32_t c0 = kPalette[paper];
             dst[0] = (bitmap & 0x80) ? c1 : c0;
             dst[1] = (bitmap & 0x40) ? c1 : c0;
             dst[2] = (bitmap & 0x20) ? c1 : c0;
