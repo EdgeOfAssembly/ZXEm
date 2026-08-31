@@ -173,7 +173,7 @@ TEST_CASE("maskable INT fires once per frame from EI HALT")
             ts += t;
             if (ula.take_frame_irq())
             {
-                if (z80.IFF1)
+                if (z80.can_take_irq())
                 {
                     z80.IFF1 = z80.IFF2 = false;
                     z80.halted = false;
@@ -319,4 +319,83 @@ TEST_CASE("FDCB RLC (IY+d) copies result to A")
     REQUIRE(t == 23);
     REQUIRE(ula.read(0x8001) == 0x01);
     REQUIRE(z.A == 0x01);
+}
+
+TEST_CASE("CB opcode increments R by 2")
+{
+    ULA ula;
+    Z80 z;
+    z.ula = &ula;
+    ula.reset();
+    z.reset();
+    z.R = 0x00;
+    ula.rom[0] = 0xCB;
+    ula.rom[1] = 0x00; /* RLC B */
+    z.PC = 0;
+    z.execute();
+    REQUIRE(z.R == 2);
+}
+
+TEST_CASE("HALT increments R each phantom M1")
+{
+    ULA ula;
+    Z80 z;
+    z.ula = &ula;
+    ula.reset();
+    z.reset();
+    z.R = 0x80; /* bit 7 sticky */
+    ula.rom[0] = 0x76; /* HALT */
+    z.PC = 0;
+    z.execute();
+    REQUIRE(z.R == 0x81);
+    REQUIRE(z.halted);
+    z.execute();
+    REQUIRE(z.R == 0x82);
+    z.execute();
+    REQUIRE(z.R == 0x83);
+}
+
+TEST_CASE("EI defers IRQ until after the guard instruction")
+{
+    ULA ula;
+    Z80 z;
+    z.ula = &ula;
+    ula.reset();
+    z.reset();
+    ula.rom[0] = 0xFB; /* EI */
+    ula.rom[1] = 0x00; /* NOP guard */
+    ula.rom[2] = 0x00; /* NOP */
+    z.PC = 0;
+    z.execute();
+    REQUIRE(z.IFF1);
+    REQUIRE(z.IFF2);
+    REQUIRE_FALSE(z.can_take_irq());
+    z.execute(); /* guard */
+    REQUIRE(z.IFF1);
+    REQUIRE(z.can_take_irq());
+}
+
+TEST_CASE("INI updates H/PV/X/Y not only Z/N")
+{
+    ULA ula;
+    Z80 z;
+    z.ula = &ula;
+    ula.reset();
+    z.reset();
+    z.setHL(0x8000);
+    z.B = 0x29;
+    z.C = 0xFE;
+    z.F = 0x00;
+    ula.rom[0] = 0xED;
+    ula.rom[1] = 0xA2; /* INI */
+    z.PC = 0;
+    const uint8_t f0 = z.F;
+    z.execute();
+    REQUIRE(z.B == 0x28);
+    REQUIRE(z.getHL() == 0x8001);
+    REQUIRE(z.F != f0);
+    REQUIRE((z.F & 0x02) != 0); /* N */
+    /* Old path left F=0x02 (N only). X/Y come from B after DEC. */
+    REQUIRE(z.F != 0x02);
+    REQUIRE((z.F & 0x28) == 0x28);
 }

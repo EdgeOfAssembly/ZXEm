@@ -40,13 +40,18 @@ int z80_page_to_bank(uint8_t page, bool is128k)
 }
 
 /**
- * @brief Expand Z80 ED-ED RLE into @p dest (v1 marker-terminated or v2/v3 sized).
+ * @brief Expand Z80 ED-ED RLE into @p dest.
+ * @param[in,out] c Input cursor (v1: until marker or dest full; v2/v3: length-capped).
+ * @param[out] dest Output buffer.
+ * @param[in] dest_size Bytes to produce.
+ * @param[in] v1_marker If true, @c ED ED 00 [tail] ends the stream (v1).
  * @return true if @p dest_size bytes were produced.
  *
  * A lone 0xED (next byte not 0xED) is one literal. @c ED ED xx yy repeats @c yy
- * @c xx times (@c xx != 0). @c ED ED 00 ends the stream (v1 @c 00 ED ED 00).
+ * @c xx times. v2/v3 pages must not stop at @c ED ED 00 — that is a zero-length
+ * run (then @c yy is still consumed). v1 uses the @c 00 ED ED 00 trailer.
  */
-static bool decompress_ed_ed(ByteCursor& c, uint8_t* dest, uint32_t dest_size)
+static bool decompress_ed_ed(ByteCursor& c, uint8_t* dest, uint32_t dest_size, bool v1_marker)
 {
     uint32_t pos = 0;
     while (pos < dest_size)
@@ -83,7 +88,7 @@ static bool decompress_ed_ed(ByteCursor& c, uint8_t* dest, uint32_t dest_size)
         {
             break;
         }
-        if (rep == 0x00)
+        if (v1_marker && rep == 0x00)
         {
             uint8_t tail = 0;
             (void)c.get8(tail);
@@ -100,6 +105,38 @@ static bool decompress_ed_ed(ByteCursor& c, uint8_t* dest, uint32_t dest_size)
         }
     }
     return pos >= dest_size;
+}
+
+/**
+ * @brief Fill one 16K Z80 v2/v3 RAM page from a length-prefixed block.
+ * @param[in,out] c Cursor at the compressed (or raw) payload.
+ * @param[in] block_len 0xFFFF → uncompressed 16384; else input byte count.
+ * @param[out] pagebuf 16384-byte destination (zero-filled on entry).
+ * @return false if the input is shorter than required.
+ *
+ * Spec pages are raw (@p block_len 0xFFFF) or ED-ED RLE of exactly
+ * @p block_len input bytes — never the v1 @c ED ED 00 terminator.
+ * zlib is SZX, not .z80.
+ */
+static bool load_z80_v2_page(ByteCursor& c, uint16_t block_len, uint8_t* pagebuf)
+{
+    memset(pagebuf, 0, 16384);
+    if (block_len == 0xFFFF)
+    {
+        return c.read(pagebuf, 16384);
+    }
+    if (c.remaining() < block_len)
+    {
+        return false;
+    }
+    const uint8_t* src = c.peek(block_len);
+    if (src == nullptr)
+    {
+        return false;
+    }
+    ByteCursor block(src, block_len);
+    (void)decompress_ed_ed(block, pagebuf, 16384, false);
+    return c.skip(block_len);
 }
 
 /**
@@ -299,6 +336,11 @@ bool load_z80(const uint8_t* data, size_t size, Z80& z80, ULA& ula)
 
     uint8_t header[30];
     memcpy(header, data, 30);
+    /* Old savers wrote 0xFF here; the spec says treat it as 1 (R bit 7, not compressed). */
+    if (header[12] == 0xFF)
+    {
+        header[12] = 1;
+    }
     parse_z80_v1_header(header, z80);
     const bool compressed = (header[12] & 0x20) != 0;
     ByteCursor c(data + 30, size - 30);
@@ -313,7 +355,7 @@ bool load_z80(const uint8_t* data, size_t size, Z80& z80, ULA& ula)
         {
             uint8_t buf[49152];
             memset(buf, 0, sizeof(buf));
-            if (!decompress_ed_ed(c, buf, 49152))
+            if (!decompress_ed_ed(c, buf, 49152, true))
             {
                 log_warn("Z80 v1: decompressor stopped early");
             }
@@ -359,9 +401,18 @@ bool load_z80(const uint8_t* data, size_t size, Z80& z80, ULA& ula)
     log_info("Z80 %s PC=0x%04X hw_mode=%u 128K=%d extra=%u",
              v3 ? "v3" : "v2", z80.PC, hw_mode, is128k ? 1 : 0, ext_len);
 
+    if (v3 && (hw_mode == 7 || hw_mode == 13))
+    {
+        is128k = true;
+        ula.setPlus3(true);
+    }
     if (is128k)
     {
         ula.setModel128(true);
+        if (v3 && (hw_mode == 7 || hw_mode == 13))
+        {
+            ula.setPlus3(true);
+        }
         if (ext_len >= 4)
         {
             ula.port7ffd = ext[3];
@@ -395,25 +446,11 @@ bool load_z80(const uint8_t* data, size_t size, Z80& z80, ULA& ula)
                   page, bank, block_len, uncompressed ? 1 : 0);
 
         uint8_t pagebuf[16384];
-        memset(pagebuf, 0, sizeof(pagebuf));
-        if (uncompressed)
+        if (!load_z80_v2_page(c, block_len, pagebuf))
         {
-            if (!c.read(pagebuf, 16384))
-            {
-                log_error("Z80: uncompressed page %u short", page);
-                return false;
-            }
-        }
-        else
-        {
-            if (c.remaining() < block_len)
-            {
-                log_error("Z80: compressed page %u short", page);
-                return false;
-            }
-            ByteCursor block(c.peek(block_len), block_len);
-            decompress_ed_ed(block, pagebuf, 16384);
-            c.skip(block_len);
+            log_error("Z80: page %u short (len=%u uncompressed=%d)",
+                      page, block_len, uncompressed ? 1 : 0);
+            return false;
         }
 
         if (bank >= 0 && bank < 8)

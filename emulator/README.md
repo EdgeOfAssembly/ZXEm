@@ -41,6 +41,10 @@ zxem [options] [input…]
 No arguments prints usage (same as `-h` / `--help`). `-v` / `--version`
 prints `zxem 0.7`. Options and inputs may be interleaved.
 
+**Precedence:** CLI flags **always** win over INI (`--config` / `./config.ini`),
+which wins over compiled defaults. `--config` may appear anywhere on the
+command line; remaining flags still override that file.
+
 ```bash
 ./zxem /path/to/game.z80
 ./zxem /mnt/Games.zip --list
@@ -65,7 +69,7 @@ prints `zxem 0.7`. Options and inputs may be interleaved.
 | `--no-system-rom` | search on | Skip `/usr/share/fuse` |
 | `--trdos-rom FILE` | off | 16K TR-DOS ROM (Beta Disk) |
 | `--plus3-rom FILE` | off | 64K +3 ROM or dir of `plus3-0..3.rom` |
-| `--config FILE` | `./config.ini` | INI overrides |
+| `--config FILE` | `./config.ini` | INI (CLI flags always override INI) |
 | `--pok FILE` | | Apply POK cheats after load |
 | `--headless` | off | No SDL window |
 | `--frames N` | | Run N frames and exit (implies `--headless`) |
@@ -115,7 +119,8 @@ fails frozen runs (stuck PC without FRAMES/display-hash progress) and sanitizer 
 ## Controls
 
 Default (`--keymap spectrum`) is a 1:1 Spectrum keyboard. There is **no in-game
-rebind menu** yet. Use `--keymap wasd` or `config.ini`:
+rebind menu** yet. Use `--keymap wasd` or `config.ini` (`--keymap` on the CLI
+wins if both are set):
 
 ```ini
 [input]

@@ -638,6 +638,7 @@ static void print_usage(const char* argv0)
             "           Directories expand to playable ZX files (non-recursive).\n"
             "           Zip archives are read in-place (no extract). Use zip#member\n"
             "           or --member NAME to select a file inside.\n"
+            "           Precedence: CLI flags > --config INI > compiled defaults.\n"
             "\n"
             "Options:\n"
             "  -h, --help            Show this help and exit\n"
@@ -650,7 +651,7 @@ static void print_usage(const char* argv0)
             "      --no-system-rom   Do not search /usr/share/fuse (default: search)\n"
             "      --trdos-rom FILE  16K TR-DOS ROM (Beta Disk paging)\n"
             "      --plus3-rom FILE  64K +3 ROM, or a directory of plus3-0..3.rom\n"
-            "      --config FILE     INI config (default: ./config.ini)\n"
+            "      --config FILE     INI (default: ./config.ini); CLI flags always win\n"
             "      --pok FILE        Apply POK cheats after load\n"
             "      --headless        No SDL window/audio/input\n"
             "      --frames N        Run N frames then exit (implies --headless)\n"
@@ -687,6 +688,13 @@ static bool take_value(int& i, int argc, char** argv, const char* opt, std::stri
     return true;
 }
 
+/**
+ * @brief Copy INI keys onto process globals (compiled defaults already set).
+ *
+ * @param[in] cfg Loaded INI.
+ * @note CLI is re-parsed after this so argv always wins over INI (AUDIT FE-3),
+ *       regardless of whether --config appears before or after other flags.
+ */
 static void apply_config(const Config& cfg)
 {
     if (cfg.has("emulator", "game"))
@@ -860,15 +868,31 @@ static void print_heartbeat(int frame, const Z80& cpu, const ULA& u)
              frame, cpu.PC, cpu.SP, frames, scr);
 }
 
-int main(int argc, char* argv[])
+/**
+ * @brief Parse argv into process-wide CLI globals.
+ *
+ * @param[in]  argc Argument count.
+ * @param[in]  argv Argument vector.
+ * @param[out] inputs       Positional paths (cleared then filled).
+ * @param[out] want_help    Set if -h/--help is present.
+ * @param[out] want_version Set if -v/--version is present.
+ * @param[out] saw_config   Set if --config is present (path stored in g_config_path).
+ * @return 0 on success, 1 on a usage or value error (message already printed).
+ *
+ * @note Invoked twice from main: pass 1 discovers --config so the INI can be
+ *       applied; pass 2 reapplies CLI so flags always win over INI, independent
+ *       of argv order (AUDIT FE-3). --config does not call apply_config here.
+ */
+static int parse_cli(int argc, char** argv,
+                     std::vector<std::string>& inputs,
+                     bool& want_help,
+                     bool& want_version,
+                     bool& saw_config)
 {
-    std::vector<std::string> inputs;
-    bool want_help = false;
-    bool want_version = false;
-    bool saw_config_flag = false;
-
-    Config cfg;
-    cfg.load(g_config_path.c_str());
+    inputs.clear();
+    want_help = false;
+    want_version = false;
+    saw_config = false;
 
     for (int i = 1; i < argc; i++)
     {
@@ -931,15 +955,7 @@ int main(int argc, char* argv[])
             {
                 return 1;
             }
-            if (!cfg.load(g_config_path.c_str()))
-            {
-                fprintf(stderr, "Warning: could not load config %s\n", g_config_path.c_str());
-            }
-            else
-            {
-                apply_config(cfg);
-                saw_config_flag = true;
-            }
+            saw_config = true;
         }
         else if (strncmp(a, "--keymap", 8) == 0)
         {
@@ -1035,6 +1051,41 @@ int main(int argc, char* argv[])
             inputs.push_back(a);
         }
     }
+    return 0;
+}
+
+int main(int argc, char* argv[])
+{
+    std::vector<std::string> inputs;
+    bool want_help = false;
+    bool want_version = false;
+    bool saw_config_flag = false;
+
+    /*
+     * Precedence: compiled defaults < INI < CLI.
+     * Pass 1 reads --config (anywhere on argv) so the INI path is known.
+     * apply_config then fills globals from INI.
+     * Pass 2 reapplies CLI so flags win even when they appear before --config.
+     */
+    if (parse_cli(argc, argv, inputs, want_help, want_version, saw_config_flag) != 0)
+    {
+        return 1;
+    }
+
+    Config cfg;
+    if (cfg.load(g_config_path.c_str()))
+    {
+        apply_config(cfg);
+    }
+    else if (saw_config_flag)
+    {
+        fprintf(stderr, "Warning: could not load config %s\n", g_config_path.c_str());
+    }
+
+    if (parse_cli(argc, argv, inputs, want_help, want_version, saw_config_flag) != 0)
+    {
+        return 1;
+    }
 
     if (want_help || argc == 1)
     {
@@ -1054,12 +1105,6 @@ int main(int argc, char* argv[])
             fprintf(stderr, "Cannot open --log-file %s\n", g_log_file.c_str());
             return 1;
         }
-    }
-
-    /* Default config (no --config) still supplies model/rom if present. */
-    if (!saw_config_flag)
-    {
-        apply_config(cfg);
     }
 
     if (g_list_only)
@@ -1359,7 +1404,7 @@ int main(int argc, char* argv[])
 
             if (ula.take_frame_irq())
             {
-                if (z80.IFF1)
+                if (z80.can_take_irq())
                 {
                     z80.IFF1 = z80.IFF2 = false;
                     z80.halted = false;

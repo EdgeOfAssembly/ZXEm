@@ -35,6 +35,8 @@ public:
     uint8_t ram[49152];
     uint8_t ram_banks[8][16384];
     uint8_t border;
+    /** @brief Last border colour (0–7) on each raster line (48K 312; 128K uses 311). */
+    uint8_t border_line[312];
     bool beeper;
     int tstates;
     int frame_tstates;
@@ -61,7 +63,17 @@ public:
     void resetToSyntheticROM();
     uint8_t read(uint16_t addr);
     void write(uint16_t addr, uint8_t val);
+    /**
+     * @brief Read an I/O port (keyboard, Kempston, AY, FDC, or floating bus).
+     * @param[in] port Full 16-bit port address.
+     * @return Port data. Unmapped odd ports yield @ref floating_bus.
+     */
     uint8_t ioRead(uint16_t port);
+    /**
+     * @brief Write an I/O port. Even ports update @c border and @c border_line[line].
+     * @param[in] port Full 16-bit port address.
+     * @param[in] val  Byte written by the Z80.
+     */
     void ioWrite(uint16_t port, uint8_t val);
     void step(int cycles);
     /**
@@ -163,6 +175,12 @@ public:
      */
     int io_contention(uint16_t port) const;
     /**
+     * @brief Idle-bus byte for an unmapped odd-port read (classic 48K/128K floating bus).
+     * @return Display-file bitmap or attribute during the pixel window; 0xFF on idle, border, or +3.
+     * @note +2A/+3 gate array does not expose the display fetch. Screen bank follows 7FFD bit 3.
+     */
+    uint8_t floating_bus() const;
+    /**
      * @brief Consume I/O wait accumulated by ioRead/ioWrite.
      * @return Extra T-states; the accumulator is cleared.
      */
@@ -196,6 +214,40 @@ public:
         return 0;
     }
     return contention_delay();
+}
+
+[[gnu::always_inline]] inline uint8_t ULA::floating_bus() const
+{
+    /* +2A/+3 ASIC does not put display fetches on the idle bus. */
+    if (plus3)
+    {
+        return 0xFF;
+    }
+    if (static_cast<unsigned>(line - ULA_FIRST_LINE) >= 192u)
+    {
+        return 0xFF;
+    }
+    const int t = line_tstates - ULA_FIRST_PIXEL;
+    if (static_cast<unsigned>(t) >= 128u)
+    {
+        return 0xFF;
+    }
+    /* 8 T: bitmap, attr, bitmap+1, attr+1, then 4 T idle (0xFF). */
+    const int phase = t & 7;
+    if (phase >= 4)
+    {
+        return 0xFF;
+    }
+    const int y = line - ULA_FIRST_LINE;
+    const int col = ((t >> 3) << 1) | ((phase >= 2) ? 1 : 0);
+    const int screen_bank = (is128 && (port7ffd & 0x08)) ? 7 : 5;
+    const uint8_t* const scr = ram_banks[screen_bank];
+    if ((phase & 1) != 0)
+    {
+        return scr[0x1800 + ((y >> 3) << 5) + col];
+    }
+    const int bmp = ((y & 0xC0) << 5) | ((y & 0x07) << 8) | ((y & 0x38) << 2) | col;
+    return scr[bmp];
 }
 
 [[gnu::always_inline]] inline int ULA::isContended(uint16_t addr) const

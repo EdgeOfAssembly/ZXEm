@@ -16,6 +16,7 @@ public:
     uint8_t read_data() const;
     uint8_t selected() const { return reg_select; }
     void step(int cycles);
+    /** @brief Mix A/B/C using the 16-entry logarithmic DAC (~2 dB/step). */
     float sample() const;
 
     static const int CLOCK_DIV = 2;
@@ -32,7 +33,7 @@ private:
     int env_volume;
     int env_period;
     int env_shape;
-    int env_step;
+    int env_step; /**< 0 while running; 1 after Hold / Continue=0 freeze. */
     bool env_hold, env_alt, env_attack;
     int cycle_acc;
 };

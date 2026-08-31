@@ -1,6 +1,10 @@
 ; ZX Spectrum 48K Emulator configuration file
 ; Copy this file to config.ini next to the zxem binary
 ; and edit the paths to match your system.
+;
+; Precedence: CLI flags > this INI > compiled defaults.
+; `zxem --keymap spectrum --config this.ini` keeps spectrum even if
+; [input] keymap = wasd below. --config may appear anywhere on argv.
 
 [emulator]
 ; Path to the .z80 snapshot to load on startup.

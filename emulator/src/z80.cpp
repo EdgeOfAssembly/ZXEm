@@ -21,7 +21,7 @@ void Z80::reset() {
     IFF1 = IFF2 = false;
     IM = 0;
     halted = false;
-    ei_pending = false;
+    irq_deferred = false;
     nmi_pending = false;
     tstates = 0;
     extra_t = 0;
@@ -32,6 +32,20 @@ bool Z80::parity(uint8_t v) {
     v ^= v >> 2;
     v ^= v >> 1;
     return !(v & 1);
+}
+
+void Z80::io_block_flags(uint8_t data, uint8_t addend)
+{
+    const unsigned k = static_cast<unsigned>(data) + addend;
+    F = 0;
+    setFlagS(B);
+    setFlagZ(B);
+    setFlag53(B);
+    const bool hc = k > 0xFF;
+    setFlagH(hc);
+    setFlagC(hc);
+    setFlagN(true);
+    setFlagPV(parity(static_cast<uint8_t>((k & 7u) ^ B)));
 }
 
 
@@ -292,6 +306,7 @@ int Z80::execute() {
     if (nmi_pending) {
         nmi_pending = false;
         halted = false;
+        irq_deferred = false;
         IFF2 = IFF1;
         IFF1 = false;
         memWrite(--SP, (uint8_t)(PC >> 8));
@@ -300,16 +315,15 @@ int Z80::execute() {
         return finish(11);
     }
 
-    if (ei_pending) {
-        IFF1 = IFF2 = true;
-        ei_pending = false;
-    }
+    /* This instruction is the EI guard (if any); INT is sampled after it returns. */
+    irq_deferred = false;
 
     if (halted) {
+        inc_R();
         return finish(4);
     }
 
-    R = (R & 0x80) | ((R + 1) & 0x7F);
+    inc_R();
 
     if (ula != nullptr)
     {
@@ -588,7 +602,7 @@ int Z80::execute() {
         case 0xF0: if (!(F & 0x80)) { PC = memRead(SP) | ((uint16_t)memRead(SP + 1) << 8); SP += 2; base_t = 11; } else base_t = 5; break;
         case 0xF1: setAF(memRead(SP) | ((uint16_t)memRead(SP + 1) << 8)); SP += 2; base_t = 10; break;
         case 0xF2: { uint16_t a = fetch16(); if (!(F & 0x80)) { PC = a; } base_t = 10; } break;
-        case 0xF3: IFF1 = IFF2 = false; break;
+        case 0xF3: IFF1 = IFF2 = false; irq_deferred = false; break;
         case 0xF4: { uint16_t a = fetch16(); if (!(F & 0x80)) { memWrite(--SP, (uint8_t)(PC >> 8)); memWrite(--SP, (uint8_t)(PC & 0xFF)); PC = a; base_t = 17; } else base_t = 10; } break;
         case 0xF5: memWrite(--SP, A); memWrite(--SP, F); base_t = 11; break;
         case 0xF6: or8(fetch8()); base_t = 7; break;
@@ -596,7 +610,7 @@ int Z80::execute() {
         case 0xF8: if (F & 0x80) { PC = memRead(SP) | ((uint16_t)memRead(SP + 1) << 8); SP += 2; base_t = 11; } else base_t = 5; break;
         case 0xF9: SP = getHL(); base_t = 6; break;
         case 0xFA: { uint16_t a = fetch16(); if (F & 0x80) { PC = a; } base_t = 10; } break;
-        case 0xFB: ei_pending = true; break;
+        case 0xFB: IFF1 = IFF2 = true; irq_deferred = true; break;
         case 0xFC: { uint16_t a = fetch16(); if (F & 0x80) { memWrite(--SP, (uint8_t)(PC >> 8)); memWrite(--SP, (uint8_t)(PC & 0xFF)); PC = a; base_t = 17; } else base_t = 10; } break;
         case 0xFD: return op_FD();
         case 0xFE: cp8(fetch8()); base_t = 7; break;
@@ -607,6 +621,7 @@ int Z80::execute() {
 }
 
 int Z80::op_ED() {
+    inc_R();
     uint8_t op = fetch8();
     int base_t = 4;
 
@@ -724,20 +739,16 @@ int Z80::op_ED() {
             uint8_t v = ioRead(getBC());
             memWrite(getHL(), v);
             setHL(getHL() + 1);
-            B = dec8(B);
-            F = (F & 0x01);
-            setFlagZ(B);
-            setFlagN(true);
+            B = static_cast<uint8_t>(B - 1);
+            io_block_flags(v, static_cast<uint8_t>(C + 1));
             base_t = 16;
         } break;
         case 0xA3: { // OUTI
             uint8_t v = memRead(getHL());
             setHL(getHL() + 1);
-            B = dec8(B);
+            B = static_cast<uint8_t>(B - 1);
             ioWrite(getBC(), v);
-            F = (F & 0x01);
-            setFlagZ(B);
-            setFlagN(true);
+            io_block_flags(v, L);
             base_t = 16;
         } break;
         case 0xA8: { // LDD
@@ -767,20 +778,16 @@ int Z80::op_ED() {
             uint8_t v = ioRead(getBC());
             memWrite(getHL(), v);
             setHL(getHL() - 1);
-            B = dec8(B);
-            F = (F & 0x01);
-            setFlagZ(B);
-            setFlagN(true);
+            B = static_cast<uint8_t>(B - 1);
+            io_block_flags(v, static_cast<uint8_t>(C - 1));
             base_t = 16;
         } break;
         case 0xAB: { // OUTD
             uint8_t v = memRead(getHL());
             setHL(getHL() - 1);
-            B = dec8(B);
+            B = static_cast<uint8_t>(B - 1);
             ioWrite(getBC(), v);
-            F = (F & 0x01);
-            setFlagZ(B);
-            setFlagN(true);
+            io_block_flags(v, L);
             base_t = 16;
         } break;
         case 0xB0: { // LDIR
@@ -808,20 +815,16 @@ int Z80::op_ED() {
             uint8_t v = ioRead(getBC());
             memWrite(getHL(), v);
             setHL(getHL() + 1);
-            B = dec8(B);
-            F = (F & 0x01);
-            setFlagZ(B);
-            setFlagN(true);
+            B = static_cast<uint8_t>(B - 1);
+            io_block_flags(v, static_cast<uint8_t>(C + 1));
             if (B != 0) { PC -= 2; base_t = 21; } else base_t = 16;
         } break;
         case 0xB3: { // OTIR
             uint8_t v = memRead(getHL());
             setHL(getHL() + 1);
-            B = dec8(B);
+            B = static_cast<uint8_t>(B - 1);
             ioWrite(getBC(), v);
-            F = (F & 0x01);
-            setFlagZ(B);
-            setFlagN(true);
+            io_block_flags(v, L);
             if (B != 0) { PC -= 2; base_t = 21; } else base_t = 16;
         } break;
         case 0xB8: { // LDDR
@@ -849,20 +852,16 @@ int Z80::op_ED() {
             uint8_t v = ioRead(getBC());
             memWrite(getHL(), v);
             setHL(getHL() - 1);
-            B = dec8(B);
-            F = (F & 0x01);
-            setFlagZ(B);
-            setFlagN(true);
+            B = static_cast<uint8_t>(B - 1);
+            io_block_flags(v, static_cast<uint8_t>(C - 1));
             if (B != 0) { PC -= 2; base_t = 21; } else base_t = 16;
         } break;
         case 0xBB: { // OTDR
             uint8_t v = memRead(getHL());
             setHL(getHL() - 1);
-            B = dec8(B);
+            B = static_cast<uint8_t>(B - 1);
             ioWrite(getBC(), v);
-            F = (F & 0x01);
-            setFlagZ(B);
-            setFlagN(true);
+            io_block_flags(v, L);
             if (B != 0) { PC -= 2; base_t = 21; } else base_t = 16;
         } break;
 
@@ -873,6 +872,7 @@ int Z80::op_ED() {
 }
 
 int Z80::op_CB() {
+    inc_R();
     uint8_t op = fetch8();
     int base_t = 8;
 
@@ -1158,6 +1158,7 @@ int Z80::op_DD() {
     int base_t = 4;
 
     if (op == 0xCB) {
+        inc_R();
         uint8_t d = fetch8();
         return op_DDCB(d);
     }
@@ -1208,6 +1209,7 @@ int Z80::op_DD() {
         }
     }
 
+    inc_R();
     return finish(base_t);
 }
 
@@ -1216,6 +1218,7 @@ int Z80::op_FD() {
     int base_t = 4;
 
     if (op == 0xCB) {
+        inc_R();
         uint8_t d = fetch8();
         return op_FDCB(d);
     }
@@ -1266,6 +1269,7 @@ int Z80::op_FD() {
         }
     }
 
+    inc_R();
     return finish(base_t);
 }
 

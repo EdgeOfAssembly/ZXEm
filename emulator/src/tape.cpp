@@ -51,28 +51,162 @@ void TapeDeck::add_pilot(int pulses, uint32_t period)
     }
 }
 
+void TapeDeck::add_byte_bits(uint8_t b, int nbits, uint32_t zero, uint32_t one)
+{
+    if (nbits <= 0)
+    {
+        return;
+    }
+    if (nbits > 8)
+    {
+        nbits = 8;
+    }
+    for (int i = 7; i >= 8 - nbits; i--)
+    {
+        const uint32_t p = (b & (1u << i)) ? one : zero;
+        add_edge(p);
+        add_edge(p);
+    }
+}
+
+void TapeDeck::add_data(const uint8_t* data, uint32_t n, uint32_t zero, uint32_t one, uint8_t used_bits)
+{
+    if (data == nullptr || n == 0)
+    {
+        return;
+    }
+    uint8_t last_bits = used_bits;
+    if (last_bits == 0 || last_bits > 8)
+    {
+        last_bits = 8;
+    }
+    for (uint32_t i = 0; i < n; i++)
+    {
+        const int bits = (i + 1u == n) ? static_cast<int>(last_bits) : 8;
+        add_byte_bits(data[i], bits, zero, one);
+    }
+}
+
 void TapeDeck::add_block(uint8_t flag, const uint8_t* payload, uint16_t payload_len, uint8_t checksum)
 {
     const int pilot = (flag == 0x00) ? 8063 : 3223;
     add_pilot(pilot, kPilot);
     add_edge(kSync1);
     add_edge(kSync2);
-
-    auto add_byte = [this](uint8_t b) {
-        for (int i = 7; i >= 0; i--)
-        {
-            const uint32_t p = (b & (1u << i)) ? kBit1 : kBit0;
-            add_edge(p);
-            add_edge(p);
-        }
-    };
-    add_byte(flag);
-    for (uint16_t i = 0; i < payload_len; i++)
-    {
-        add_byte(payload[i]);
-    }
-    add_byte(checksum);
+    add_byte_bits(flag, 8, kBit0, kBit1);
+    add_data(payload, payload_len, kBit0, kBit1, 8);
+    add_byte_bits(checksum, 8, kBit0, kBit1);
     add_edge(kPause);
+}
+
+/**
+ * @brief Skip a TZX block that is not EAR-encoded (same IDs as snapshot.cpp).
+ * @param[in,out] c Cursor just after the block id.
+ * @param[in] id TZX block identifier.
+ * @return true if the block was skipped; false if truncated or length unknown.
+ *
+ * Unknown ids with a documented length (0x15, 0x16–0x19 DWORD, 0x34, 0x40)
+ * are skipped; anything else stops the parse.
+ */
+static bool tzx_skip_id(ByteCursor& c, uint8_t id)
+{
+    switch (id)
+    {
+        case 0x12:
+            return c.skip(4);
+        case 0x13:
+        {
+            uint8_t n = 0;
+            return c.get8(n) && c.skip(static_cast<size_t>(n) * 2u);
+        }
+        case 0x15:
+        {
+            if (!c.skip(5))
+            {
+                return false;
+            }
+            uint32_t n = 0;
+            return c.get24le(n) && c.skip(n);
+        }
+        case 0x16:
+        case 0x17:
+        case 0x18:
+        case 0x19:
+        {
+            uint32_t n = 0;
+            return c.get32le(n) && c.skip(n);
+        }
+        case 0x20:
+        case 0x23:
+        case 0x24:
+            return c.skip(2);
+        case 0x21:
+        {
+            uint8_t n = 0;
+            return c.get8(n) && c.skip(n);
+        }
+        case 0x22:
+        case 0x25:
+        case 0x27:
+            return true;
+        case 0x26:
+        {
+            uint16_t n = 0;
+            return c.get16le(n) && c.skip(static_cast<size_t>(n) * 2u);
+        }
+        case 0x28:
+        {
+            uint16_t n = 0;
+            return c.get16le(n) && c.skip(n);
+        }
+        case 0x2A:
+            return c.skip(4);
+        case 0x2B:
+            return c.skip(5);
+        case 0x30:
+        {
+            uint8_t n = 0;
+            return c.get8(n) && c.skip(n);
+        }
+        case 0x31:
+        {
+            uint8_t t = 0;
+            uint8_t n = 0;
+            return c.get8(t) && c.get8(n) && c.skip(n);
+        }
+        case 0x32:
+        {
+            uint16_t n = 0;
+            return c.get16le(n) && c.skip(n);
+        }
+        case 0x33:
+        {
+            uint8_t n = 0;
+            return c.get8(n) && c.skip(static_cast<size_t>(n) * 3u);
+        }
+        case 0x34:
+            return c.skip(8);
+        case 0x35:
+        {
+            if (!c.skip(16))
+            {
+                return false;
+            }
+            uint32_t n = 0;
+            return c.get32le(n) && c.skip(n);
+        }
+        case 0x40:
+        {
+            uint8_t fmt = 0;
+            uint32_t n = 0;
+            return c.get8(fmt) && c.get24le(n) && c.skip(n);
+        }
+        case 0x5A:
+            return c.skip(9);
+        default:
+            log_debug("tape EAR: TZX id 0x%02X length unknown — stopping", id);
+            return false;
+    }
 }
 
 bool TapeDeck::load_tap(const uint8_t* data, size_t size)
@@ -155,7 +289,10 @@ bool TapeDeck::load_tzx(const uint8_t* data, size_t size)
             }
             const uint16_t payload_len = static_cast<uint16_t>(len - 2);
             const uint8_t* payload = c.peek(payload_len);
-            c.skip(payload_len);
+            if (!c.skip(payload_len))
+            {
+                break;
+            }
             uint8_t checksum = 0;
             if (!c.get8(checksum))
             {
@@ -167,133 +304,76 @@ bool TapeDeck::load_tzx(const uint8_t* data, size_t size)
         }
         if (id == 0x11)
         {
-            /* Turbo: skip 18-byte header then data; encode as standard for EAR. */
-            if (c.remaining() < 18)
+            uint16_t pilot = 0;
+            uint16_t sync1 = 0;
+            uint16_t sync2 = 0;
+            uint16_t zero = 0;
+            uint16_t one = 0;
+            uint16_t n_pilot = 0;
+            uint8_t used_bits = 0;
+            uint16_t pause_ms = 0;
+            uint32_t n = 0;
+            if (!c.get16le(pilot) || !c.get16le(sync1) || !c.get16le(sync2) ||
+                !c.get16le(zero) || !c.get16le(one) || !c.get16le(n_pilot) ||
+                !c.get8(used_bits) || !c.get16le(pause_ms) || !c.get24le(n))
             {
                 break;
             }
-            c.skip(15);
-            uint16_t len = 0;
-            uint8_t lenhi = 0;
-            if (!c.get16le(len) || !c.get8(lenhi))
+            if (c.remaining() < n)
             {
                 break;
             }
-            const uint32_t n = static_cast<uint32_t>(len) | (static_cast<uint32_t>(lenhi) << 16);
-            if (n < 2 || c.remaining() < n)
+            const uint8_t* payload = (n == 0) ? c.peek(0) : c.peek(n);
+            if (n > 0 && payload == nullptr)
             {
                 break;
             }
-            uint8_t flag = 0;
-            if (!c.get8(flag))
+            if (!c.skip(n))
             {
                 break;
             }
-            const uint16_t payload_len = static_cast<uint16_t>(n - 2 > 0xFFFF ? 0xFFFF : n - 2);
-            const uint8_t* payload = c.peek(payload_len);
-            c.skip(n - 1);
-            add_block(flag, payload, payload_len, 0);
+            add_pilot(static_cast<int>(n_pilot), pilot);
+            add_edge(sync1);
+            add_edge(sync2);
+            add_data(payload, n, zero, one, used_bits);
+            add_edge(static_cast<uint32_t>(pause_ms) * 3500u);
             blocks++;
             continue;
         }
         if (id == 0x14)
         {
-            if (c.remaining() < 10)
+            uint16_t zero = 0;
+            uint16_t one = 0;
+            uint8_t used_bits = 0;
+            uint16_t pause_ms = 0;
+            uint32_t n = 0;
+            if (!c.get16le(zero) || !c.get16le(one) || !c.get8(used_bits) ||
+                !c.get16le(pause_ms) || !c.get24le(n))
             {
                 break;
             }
-            c.skip(7);
-            uint16_t len = 0;
-            uint8_t lenhi = 0;
-            if (!c.get16le(len) || !c.get8(lenhi))
-            {
-                break;
-            }
-            const uint32_t n = static_cast<uint32_t>(len) | (static_cast<uint32_t>(lenhi) << 16);
             if (c.remaining() < n)
             {
                 break;
             }
-            const uint8_t* payload = c.peek(static_cast<size_t>(n));
-            c.skip(n);
-            add_block(0xFF, payload, static_cast<uint16_t>(n > 0xFFFF ? 0xFFFF : n), 0);
+            const uint8_t* payload = (n == 0) ? c.peek(0) : c.peek(n);
+            if (n > 0 && payload == nullptr)
+            {
+                break;
+            }
+            if (!c.skip(n))
+            {
+                break;
+            }
+            add_data(payload, n, zero, one, used_bits);
+            add_edge(static_cast<uint32_t>(pause_ms) * 3500u);
             blocks++;
             continue;
         }
-        /* Same skip table as load_tzx in snapshot.cpp — unknown id stops. */
-        if (id == 0x12)
+        if (!tzx_skip_id(c, id))
         {
-            if (c.remaining() < 4)
-            {
-                break;
-            }
-            c.skip(4);
-            continue;
+            break;
         }
-        if (id == 0x13)
-        {
-            uint8_t n = 0;
-            if (!c.get8(n) || c.remaining() < static_cast<size_t>(n) * 2)
-            {
-                break;
-            }
-            c.skip(static_cast<size_t>(n) * 2);
-            continue;
-        }
-        if (id == 0x20)
-        {
-            if (c.remaining() < 2)
-            {
-                break;
-            }
-            c.skip(2);
-            continue;
-        }
-        if (id == 0x21)
-        {
-            uint8_t n = 0;
-            if (!c.get8(n) || c.remaining() < n)
-            {
-                break;
-            }
-            c.skip(n);
-            continue;
-        }
-        if (id == 0x22)
-        {
-            continue;
-        }
-        if (id == 0x30)
-        {
-            uint8_t n = 0;
-            if (!c.get8(n) || c.remaining() < n)
-            {
-                break;
-            }
-            c.skip(n);
-            continue;
-        }
-        if (id == 0x32)
-        {
-            uint16_t n = 0;
-            if (!c.get16le(n) || c.remaining() < n)
-            {
-                break;
-            }
-            c.skip(n);
-            continue;
-        }
-        if (id == 0x5A)
-        {
-            if (c.remaining() < 9)
-            {
-                break;
-            }
-            c.skip(9);
-            continue;
-        }
-        log_debug("tape EAR: TZX id 0x%02X not encoded", id);
-        break;
     }
     if (blocks == 0)
     {

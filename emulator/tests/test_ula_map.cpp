@@ -162,3 +162,90 @@ TEST_CASE("128K 8000 is always bank 2")
     REQUIRE(ula.read(0x8000) == 0x42);
     REQUIRE(ula.ram_banks[7][0] != 0x42);
 }
+
+TEST_CASE("floating bus returns display byte in the pixel window")
+{
+    ULA ula;
+    ula.reset();
+    ula.ram_banks[5][0] = 0xA5;
+    ula.ram_banks[5][1] = 0x3C;
+    ula.ram_banks[5][0x0100] = 0x81;
+    ula.ram_banks[5][0x1800] = 0x47;
+    ula.ram_banks[5][0x1801] = 0x12;
+
+    ula.line = 0;
+    ula.line_tstates = ULA::ULA_FIRST_PIXEL;
+    REQUIRE(ula.ioRead(0xFF) == 0xFF);
+
+    ula.line = 64;
+    ula.line_tstates = 0;
+    REQUIRE(ula.ioRead(0xFF) == 0xFF);
+
+    ula.line_tstates = ULA::ULA_FIRST_PIXEL; /* phase 0: bitmap col 0 */
+    REQUIRE(ula.ioRead(0xFF) == 0xA5);
+    REQUIRE(ula.ioRead(0xFF) != 0xFF);
+
+    ula.line_tstates = ULA::ULA_FIRST_PIXEL + 1; /* phase 1: attr col 0 */
+    REQUIRE(ula.ioRead(0xFF) == 0x47);
+
+    ula.line_tstates = ULA::ULA_FIRST_PIXEL + 2; /* phase 2: bitmap col 1 */
+    REQUIRE(ula.ioRead(0xFF) == 0x3C);
+
+    ula.line_tstates = ULA::ULA_FIRST_PIXEL + 3; /* phase 3: attr col 1 */
+    REQUIRE(ula.ioRead(0xFF) == 0x12);
+
+    ula.line_tstates = ULA::ULA_FIRST_PIXEL + 4; /* idle half of the 8 T cell */
+    REQUIRE(ula.ioRead(0xFF) == 0xFF);
+
+    ula.line = 65; /* y=1 bitmap at 0x0100 */
+    ula.line_tstates = ULA::ULA_FIRST_PIXEL;
+    REQUIRE(ula.ioRead(0xFF) == 0x81);
+
+    ula.setPlus3(true);
+    ula.line = 64;
+    ula.line_tstates = ULA::ULA_FIRST_PIXEL;
+    REQUIRE(ula.ioRead(0xFF) == 0xFF);
+}
+
+TEST_CASE("floating bus follows 128K shadow screen bank")
+{
+    ULA ula;
+    ula.setModel128(true);
+    ula.reset();
+    ula.port7ffd = 0x08;
+    ula.ram_banks[5][0] = 0x11;
+    ula.ram_banks[7][0] = 0x99;
+    ula.line = 64;
+    ula.line_tstates = ULA::ULA_FIRST_PIXEL;
+    REQUIRE(ula.ioRead(0xFF) == 0x99);
+    ula.port7ffd = 0x00;
+    REQUIRE(ula.ioRead(0xFF) == 0x11);
+}
+
+TEST_CASE("port FE write records per-line border")
+{
+    ULA ula;
+    ula.reset();
+    ula.line = 10;
+    ula.ioWrite(0x00FE, 0x05);
+    REQUIRE(ula.border == 5);
+    REQUIRE(ula.border_line[10] == 5);
+    REQUIRE(ula.border_line[11] == 0);
+
+    ula.line_tstates = ula.t_line() - 1;
+    ula.step(1);
+    REQUIRE(ula.line == 11);
+    REQUIRE(ula.border_line[11] == 5);
+
+    ula.ioWrite(0xFE, 0x02);
+    REQUIRE(ula.border == 2);
+    REQUIRE(ula.border_line[11] == 2);
+    REQUIRE(ula.border_line[10] == 5);
+
+    ula.line = ULA::LINES_PER_FRAME - 1;
+    ula.line_tstates = ula.t_line() - 1;
+    ula.border = 3;
+    ula.step(1);
+    REQUIRE(ula.line == 0);
+    REQUIRE(ula.border_line[0] == 3);
+}

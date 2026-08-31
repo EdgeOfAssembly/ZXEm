@@ -1,5 +1,6 @@
 #include "media.h"
 #include "snapshot.h"
+#include "tape.h"
 #include "ula.h"
 #include "vfs.h"
 #include "z80.h"
@@ -239,7 +240,7 @@ TEST_CASE("Knight Lore SNA starts when key 0 is held")
                 const int t = z80.execute();
                 ula.step(t);
                 ts += t;
-                if (ula.take_frame_irq() && z80.IFF1)
+                if (ula.take_frame_irq() && z80.can_take_irq())
                 {
                     z80.IFF1 = z80.IFF2 = false;
                     z80.halted = false;
@@ -601,4 +602,242 @@ TEST_CASE("Z80 v3 128K save round-trips distinct banks")
     REQUIRE(std::memcmp(ula.ram_banks[2], ula2.ram_banks[2], 16384) == 0);
     REQUIRE(std::memcmp(ula.ram_banks[0], ula2.ram_banks[0], 16384) == 0);
     REQUIRE(std::memcmp(ula.ram_banks[7], ula2.ram_banks[7], 16384) == 0);
+}
+
+static void tzx_push16(std::vector<uint8_t>& v, uint16_t x)
+{
+    v.push_back(static_cast<uint8_t>(x & 0xFF));
+    v.push_back(static_cast<uint8_t>(x >> 8));
+}
+
+static void tzx_push24(std::vector<uint8_t>& v, uint32_t x)
+{
+    v.push_back(static_cast<uint8_t>(x & 0xFF));
+    v.push_back(static_cast<uint8_t>((x >> 8) & 0xFF));
+    v.push_back(static_cast<uint8_t>((x >> 16) & 0xFF));
+}
+
+static std::vector<uint8_t> tzx_header()
+{
+    return {'Z', 'X', 'T', 'a', 'p', 'e', '!', 0x1A, 1, 0};
+}
+
+TEST_CASE("TZX turbo 0x11 uses block timings and file checksum")
+{
+    /* Custom turbo timings, 3 data bytes: flag 0xFF, payload 0xA5, checksum 0x5A. */
+    constexpr uint16_t kPilot = 1000;
+    constexpr uint16_t kSync1 = 500;
+    constexpr uint16_t kSync2 = 600;
+    constexpr uint16_t kZero = 200;
+    constexpr uint16_t kOne = 400;
+    constexpr uint16_t kNPilot = 10;
+    constexpr uint8_t kUsedBits = 8;
+    constexpr uint16_t kPauseMs = 1;
+    const uint8_t data[3] = {0xFF, 0xA5, 0x5A};
+
+    std::vector<uint8_t> tzx = tzx_header();
+    tzx.push_back(0x11);
+    tzx_push16(tzx, kPilot);
+    tzx_push16(tzx, kSync1);
+    tzx_push16(tzx, kSync2);
+    tzx_push16(tzx, kZero);
+    tzx_push16(tzx, kOne);
+    tzx_push16(tzx, kNPilot);
+    tzx.push_back(kUsedBits);
+    tzx_push16(tzx, kPauseMs);
+    tzx_push24(tzx, 3);
+    tzx.insert(tzx.end(), data, data + 3);
+
+    TapeDeck deck;
+    REQUIRE(deck.load_tzx(tzx.data(), tzx.size()));
+    REQUIRE(deck.pulse_count() == static_cast<size_t>(kNPilot + 2 + 3 * 16 + 1));
+    REQUIRE(deck.pulse_at(0) == kPilot);
+    REQUIRE(deck.pulse_at(0) != 2168);
+    REQUIRE(deck.pulse_at(kNPilot) == kSync1);
+    REQUIRE(deck.pulse_at(kNPilot + 1) == kSync2);
+
+    const size_t flag_off = static_cast<size_t>(kNPilot + 2);
+    REQUIRE(deck.pulse_at(flag_off) == kOne);
+    REQUIRE(deck.pulse_at(flag_off) != 1710);
+
+    /* Checksum 0x5A = 01011010, not the forced-0 encoding (16×zero). */
+    const size_t cs_off = flag_off + 32;
+    const uint32_t expect_cs[16] = {
+        kZero, kZero, kOne, kOne, kZero, kZero, kOne, kOne,
+        kOne, kOne, kZero, kZero, kOne, kOne, kZero, kZero
+    };
+    for (size_t i = 0; i < 16; i++)
+    {
+        REQUIRE(deck.pulse_at(cs_off + i) == expect_cs[i]);
+    }
+    bool all_zero_pulses = true;
+    for (size_t i = 0; i < 16; i++)
+    {
+        if (deck.pulse_at(cs_off + i) != kZero)
+        {
+            all_zero_pulses = false;
+        }
+    }
+    REQUIRE_FALSE(all_zero_pulses);
+    REQUIRE(deck.pulse_at(cs_off + 16) == static_cast<uint32_t>(kPauseMs) * 3500u);
+}
+
+TEST_CASE("TZX 0x14 uses block pulse length and used-bits")
+{
+    std::vector<uint8_t> tzx = tzx_header();
+    tzx.push_back(0x14);
+    tzx_push16(tzx, 100); /* zero */
+    tzx_push16(tzx, 300); /* one */
+    tzx.push_back(4);     /* used bits: top nibble of 0xF0 only */
+    tzx_push16(tzx, 0);   /* pause */
+    tzx_push24(tzx, 1);
+    tzx.push_back(0xF0);
+
+    TapeDeck deck;
+    REQUIRE(deck.load_tzx(tzx.data(), tzx.size()));
+    REQUIRE(deck.pulse_count() == 8);
+    for (size_t i = 0; i < 8; i++)
+    {
+        REQUIRE(deck.pulse_at(i) == 300);
+        REQUIRE(deck.pulse_at(i) != 1710);
+        REQUIRE(deck.pulse_at(i) != 855);
+    }
+}
+
+TEST_CASE("TZX skip table walks 0x23-0x35 then encodes 0x10")
+{
+    std::vector<uint8_t> tzx = tzx_header();
+    tzx.push_back(0x23);
+    tzx_push16(tzx, 0);
+    tzx.push_back(0x35);
+    tzx.insert(tzx.end(), 16, static_cast<uint8_t>('C'));
+    tzx_push16(tzx, 0);
+    tzx_push16(tzx, 0);
+    tzx.push_back(0x32);
+    tzx_push16(tzx, 0);
+    tzx.push_back(0x10);
+    tzx_push16(tzx, 1000);
+    tzx_push16(tzx, 3);
+    tzx.push_back(0xFF);
+    tzx.push_back(0xC9);
+    tzx.push_back(0x36);
+
+    TapeDeck deck;
+    REQUIRE(deck.load_tzx(tzx.data(), tzx.size()));
+    REQUIRE(deck.pulse_count() > 0);
+    REQUIRE(deck.pulse_at(0) == 2168);
+}
+
+TEST_CASE("Z80 v2 uncompressed page keeps ED ED 00 in the middle")
+{
+    std::vector<uint8_t> z(30 + 2 + 23, 0);
+    z[30] = 23;
+    z[32] = 0x00;
+    z[33] = 0x80;
+    z[34] = 0; /* 48K */
+
+    std::vector<uint8_t> page(16384, 0);
+    page[100] = 0xED;
+    page[101] = 0xED;
+    page[102] = 0x00;
+    page[200] = 0x42;
+    page[16383] = 0x99;
+    z.push_back(0xFF);
+    z.push_back(0xFF);
+    z.push_back(8); /* 48K 0x4000 */
+    z.insert(z.end(), page.begin(), page.end());
+
+    Z80 z80;
+    ULA ula;
+    z80.ula = &ula;
+    ula.reset();
+    REQUIRE(load_z80(z.data(), z.size(), z80, ula));
+    REQUIRE(z80.PC == 0x8000);
+    REQUIRE(ula.read(0x4000 + 100) == 0xED);
+    REQUIRE(ula.read(0x4000 + 101) == 0xED);
+    REQUIRE(ula.read(0x4000 + 102) == 0x00);
+    REQUIRE(ula.read(0x4000 + 200) == 0x42);
+    REQUIRE(ula.read(0x4000 + 16383) == 0x99);
+}
+
+TEST_CASE("Z80 v2 length-prefixed page does not stop at ED ED 00")
+{
+    std::vector<uint8_t> z(30 + 2 + 23, 0);
+    z[30] = 23;
+    z[32] = 0x00;
+    z[33] = 0x80;
+    z[34] = 0;
+
+    std::vector<uint8_t> comp;
+    comp.reserve(50 + 4 + 16334);
+    for (int i = 0; i < 50; i++)
+    {
+        comp.push_back(0x11);
+    }
+    comp.push_back(0xED);
+    comp.push_back(0xED);
+    comp.push_back(0x00);
+    comp.push_back(0x99);
+    for (int i = 0; i < 16334; i++)
+    {
+        comp.push_back(0x22);
+    }
+    const uint16_t blen = static_cast<uint16_t>(comp.size());
+    z.push_back(static_cast<uint8_t>(blen & 0xFF));
+    z.push_back(static_cast<uint8_t>(blen >> 8));
+    z.push_back(8);
+    z.insert(z.end(), comp.begin(), comp.end());
+
+    Z80 z80;
+    ULA ula;
+    z80.ula = &ula;
+    ula.reset();
+    REQUIRE(load_z80(z.data(), z.size(), z80, ula));
+    REQUIRE(ula.read(0x4000) == 0x11);
+    REQUIRE(ula.read(0x4000 + 49) == 0x11);
+    REQUIRE(ula.read(0x4000 + 50) == 0x22);
+    REQUIRE(ula.read(0x4000 + 200) == 0x22);
+    REQUIRE(ula.read(0x4000 + 16383) == 0x22);
+}
+
+TEST_CASE("Z80 v1 header 0xFF is treated as flags=1 not compressed")
+{
+    std::vector<uint8_t> z(30 + 49152, 0);
+    z[6] = 0x00;
+    z[7] = 0x80;
+    z[12] = 0xFF;
+    z[30] = 0xED;
+    z[31] = 0xED;
+    z[32] = 0x00;
+    z[33] = 0x42;
+
+    Z80 z80;
+    ULA ula;
+    z80.ula = &ula;
+    ula.reset();
+    REQUIRE(load_z80(z.data(), z.size(), z80, ula));
+    REQUIRE(z80.PC == 0x8000);
+    REQUIRE((z80.R & 0x80) != 0);
+    REQUIRE(ula.read(0x4000) == 0xED);
+    REQUIRE(ula.read(0x4003) == 0x42);
+}
+
+TEST_CASE("Z80 v3 hw mode 7 and 13 enable +3 paging")
+{
+    auto load_mode = [](uint8_t hw) {
+        std::vector<uint8_t> z(30 + 2 + 54, 0);
+        z[30] = 54;
+        z[32] = 0x00;
+        z[33] = 0x80;
+        z[34] = hw;
+        Z80 z80;
+        ULA ula;
+        z80.ula = &ula;
+        ula.reset();
+        REQUIRE(load_z80(z.data(), z.size(), z80, ula));
+        REQUIRE(ula.plus3);
+        REQUIRE(ula.is128);
+    };
+    load_mode(7);
+    load_mode(13);
 }

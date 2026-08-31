@@ -67,7 +67,8 @@ clean:
 
 # --- tests (Catch2) + CLI contracts (pytest) ---
 TEST_BIN := tests/run_tests
-TEST_SRCS := tests/test_cursor.cpp tests/test_formats.cpp tests/test_vfs.cpp tests/test_ula_map.cpp tests/test_z80.cpp
+TEST_SRCS := tests/test_cursor.cpp tests/test_formats.cpp tests/test_vfs.cpp \
+	tests/test_ula_map.cpp tests/test_z80.cpp tests/test_ay.cpp
 PY := $(shell if [ -x ../.venv/bin/python ]; then echo ../.venv/bin/python; \
 	elif [ -x /mnt/python/bin/python ]; then echo /mnt/python/bin/python; \
 	else echo python3; fi)

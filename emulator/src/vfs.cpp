@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <cstring>
 #include <dirent.h>
 #include <sys/stat.h>
@@ -15,6 +16,30 @@
 
 namespace
 {
+
+/** @brief Refuse to walk a zip central directory larger than this (zip bomb). */
+constexpr zip_int64_t kMaxVfsZipEntries = 1 << 20;
+
+/**
+ * @brief True if @p z has a sane number of members.
+ *
+ * @param[in] z       Open archive.
+ * @param[in] archive Path used only in the error log.
+ * @retval false @c zip_get_num_entries failed or exceeded @c kMaxVfsZipEntries
+ */
+bool zip_entry_count_ok(zip_t* z, const std::string& archive)
+{
+    const zip_int64_t n = zip_get_num_entries(z, 0);
+    if (n >= 0 && n <= kMaxVfsZipEntries)
+    {
+        return true;
+    }
+    log_error("zip entry count insane: %lld (cap %lld) in %s",
+              static_cast<long long>(n),
+              static_cast<long long>(kMaxVfsZipEntries),
+              archive.c_str());
+    return false;
+}
 
 bool has_zip_magic(const std::string& path)
 {
@@ -45,6 +70,11 @@ std::string ext_of(const std::string& name)
 }
 
 } // namespace
+
+bool vfs_size_ok(uint64_t n)
+{
+    return n <= kMaxVfsBytes;
+}
 
 std::string vfs_lower(const std::string& s)
 {
@@ -196,6 +226,11 @@ std::vector<std::string> vfs_list(const std::string& spec)
         {
             return {};
         }
+        if (!zip_entry_count_ok(z, archive))
+        {
+            zip_close(z);
+            return {};
+        }
         std::vector<std::string> names;
         const zip_int64_t n = zip_get_num_entries(z, 0);
         names.reserve(n > 0 ? static_cast<size_t>(n) : 0);
@@ -313,6 +348,11 @@ bool vfs_read(const std::string& spec, VfsBlob& out)
         {
             return false;
         }
+        if (!zip_entry_count_ok(z, archive))
+        {
+            zip_close(z);
+            return false;
+        }
 
         zip_int64_t idx = zip_name_locate(z, member.c_str(), 0);
         if (idx < 0)
@@ -371,6 +411,15 @@ bool vfs_read(const std::string& spec, VfsBlob& out)
             zip_close(z);
             return false;
         }
+        if (!vfs_size_ok(st.size))
+        {
+            log_error("zip member too large: %s (%llu bytes, cap %llu)",
+                      member.c_str(),
+                      static_cast<unsigned long long>(st.size),
+                      static_cast<unsigned long long>(kMaxVfsBytes));
+            zip_close(z);
+            return false;
+        }
 
         zip_file_t* zf = zip_fopen_index(z, static_cast<zip_uint64_t>(idx), 0);
         if (zf == nullptr)
@@ -422,6 +471,14 @@ bool vfs_read(const std::string& spec, VfsBlob& out)
     const long sz = ftell(f);
     if (sz < 0)
     {
+        fclose(f);
+        return false;
+    }
+    if (!vfs_size_ok(static_cast<uint64_t>(sz)))
+    {
+        log_error("file too large: %s (%ld bytes, cap %llu)",
+                  spec.c_str(), sz,
+                  static_cast<unsigned long long>(kMaxVfsBytes));
         fclose(f);
         return false;
     }

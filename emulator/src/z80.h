@@ -15,7 +15,11 @@ public:
     bool IFF1, IFF2;
     uint8_t IM;
     bool halted;
-    bool ei_pending;
+    /**
+     * @brief Set by EI; maskable INT is not accepted until the next instruction ends.
+     * @note IFF1/IFF2 are true during that guard (so LD A,I sees IFF2).
+     */
+    bool irq_deferred;
     bool nmi_pending;
 
     ULA* ula;
@@ -23,6 +27,11 @@ public:
 
     Z80();
     void reset();
+
+    /**
+     * @brief True when a maskable INT may be accepted (IFF1 and not in the EI guard).
+     */
+    bool can_take_irq() const { return IFF1 && !irq_deferred; }
 
     uint16_t getAF() const { return ((uint16_t)A << 8) | F; }
     uint16_t getBC() const { return ((uint16_t)B << 8) | C; }
@@ -91,6 +100,18 @@ private:
         tstates += extra;
         extra_t += extra;
     }
+    /** @brief Refresh register: bit 7 sticky, bits 0–6 increment on each M1. */
+    void inc_R()
+    {
+        R = static_cast<uint8_t>((R & 0x80) | ((R + 1) & 0x7F));
+    }
+    /**
+     * @brief Undocumented INI/IND/OUTI/OUTD flags (B already decremented).
+     * @param[in] data Byte transferred.
+     * @param[in] addend C±1 for IN*, L after HL update for OUT*.
+     * @note S/Z/X/Y from B; H/C from @p data+addend carry; PV = parity((k&7)^B); N set.
+     */
+    void io_block_flags(uint8_t data, uint8_t addend);
     /**
      * @brief Charge nominal opcode T-states and return the instruction cost including contention.
      * @param[in] base_t Datasheet T-states for this opcode (no contention).

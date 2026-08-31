@@ -8,6 +8,9 @@
 #include <string>
 #include <vector>
 
+/** @brief Largest blob @c vfs_read will load (Spectrum dumps never need more). */
+constexpr uint64_t kMaxVfsBytes = 32ull << 20;
+
 /** @brief Bytes loaded from a filesystem path or a zip member. */
 struct VfsBlob
 {
@@ -16,6 +19,15 @@ struct VfsBlob
     std::string member;   /**< Zip member name, empty if a plain file. */
     std::string name;     /**< Basename used for format detection. */
 };
+
+/**
+ * @brief True if @p n bytes may be loaded into a VfsBlob.
+ *
+ * @param[in] n Claimed file or zip-member size (uncompressed).
+ * @retval true  @p n is 0..kMaxVfsBytes
+ * @retval false zip-bomb / hostile size claim
+ */
+bool vfs_size_ok(uint64_t n);
 
 /**
  * @brief Split `archive.zip#member` / `archive.zip:member` / plain path.
@@ -40,9 +52,10 @@ bool vfs_is_zip(const std::string& path);
  * @brief Read a file or zip member into memory.
  *
  * Zip members are inflated in RAM via libzip; nothing is written next to the archive.
+ * Members and raw files larger than @c kMaxVfsBytes are rejected (logged).
  *
  * @retval true  @p out.data filled
- * @retval false missing file, missing member, or I/O error (logged)
+ * @retval false missing file, missing member, oversize, or I/O error (logged)
  */
 bool vfs_read(const std::string& spec, VfsBlob& out);
 
