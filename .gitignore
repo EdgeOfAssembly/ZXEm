@@ -5,6 +5,7 @@ zxem
 tests/run_tests
 emulator/tests/run_tests
 emulator/zxem
+emulator/hz50test
 emulator/obj/
 *.bin
 *.rom
