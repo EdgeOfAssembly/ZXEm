@@ -221,9 +221,26 @@ bool TapeDeck::load_tap(const uint8_t* data, size_t size)
     while (c.remaining() >= 2)
     {
         uint16_t len = 0;
-        if (!c.get16le(len) || len < 2 || c.remaining() < len)
+        if (!c.get16le(len))
         {
             break;
+        }
+        if (c.remaining() < len)
+        {
+            break;
+        }
+        if (len == 0)
+        {
+            continue;
+        }
+        if (len == 1)
+        {
+            uint8_t dummy = 0;
+            if (!c.get8(dummy))
+            {
+                break;
+            }
+            continue;
         }
         uint8_t flag = 0;
         if (!c.get8(flag))
@@ -241,6 +258,16 @@ bool TapeDeck::load_tap(const uint8_t* data, size_t size)
         if (!c.get8(checksum))
         {
             break;
+        }
+        uint8_t x = flag;
+        for (uint16_t i = 0; i < payload_len; i++)
+        {
+            x = static_cast<uint8_t>(x ^ payload[i]);
+        }
+        x = static_cast<uint8_t>(x ^ checksum);
+        if (x != 0)
+        {
+            log_warn("TAP: checksum mismatch len=%u xor=0x%02X", len, x);
         }
         add_block(flag, payload, payload_len, checksum);
         blocks++;

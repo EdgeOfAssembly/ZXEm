@@ -88,8 +88,9 @@ public:
         return pending;
     }
     /**
-     * @brief Decode the 256×192 display file into ARGB8888 (one pixel per uint32).
-     * @param[out] pixels Destination; at least 256×192 entries if pitch is 256×4.
+     * @brief Decode the 352×312 raster (border + 256×192 paper) into ARGB8888.
+     * @param[out] pixels Destination; at least SCREEN_WIDTH×SCREEN_HEIGHT entries
+     *                   if pitch is SCREEN_WIDTH×4.
      * @param[in] pitch Bytes per destination row (typically SCREEN_WIDTH * 4).
      */
     void renderFrame(uint32_t* pixels, int pitch);
@@ -135,8 +136,16 @@ public:
         return (is128 && (port7ffd & 0x10)) ? 1 : 0;
     }
 
-    static const int SCREEN_WIDTH = 256;
-    static const int SCREEN_HEIGHT = 192;
+    /** @brief Full PAL raster width: 48 left + 256 paper + 48 right. */
+    static const int SCREEN_WIDTH = 352;
+    /** @brief Full PAL raster height (48K 312 lines; 128K line 311 unused). */
+    static const int SCREEN_HEIGHT = 312;
+    /** @brief Paper (display file) width in pixels. */
+    static const int PAPER_WIDTH = 256;
+    /** @brief Paper (display file) height in pixels. */
+    static const int PAPER_HEIGHT = 192;
+    /** @brief Left-border width; paper is blitted at this x. */
+    static const int BORDER_LEFT = 48;
     static const int TSTATES_PER_LINE = 224;
     static const int LINES_PER_FRAME = 312;
     static const int TSTATES_PER_FRAME = 69888;

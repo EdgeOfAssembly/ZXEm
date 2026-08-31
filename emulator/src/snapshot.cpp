@@ -767,7 +767,7 @@ bool load_tap(const uint8_t* data, size_t size, Z80& z80, ULA& ula)
     while (c.remaining() >= 2)
     {
         uint16_t len = 0;
-        if (!c.get16le(len) || len < 2)
+        if (!c.get16le(len))
         {
             break;
         }
@@ -775,6 +775,19 @@ bool load_tap(const uint8_t* data, size_t size, Z80& z80, ULA& ula)
         {
             log_error("TAP: block truncated (len=%u remain=%zu)", len, c.remaining());
             return false;
+        }
+        if (len == 0)
+        {
+            continue;
+        }
+        if (len == 1)
+        {
+            uint8_t dummy = 0;
+            if (!c.get8(dummy))
+            {
+                return false;
+            }
+            continue;
         }
         uint8_t flag = 0;
         if (!c.get8(flag))
@@ -793,7 +806,16 @@ bool load_tap(const uint8_t* data, size_t size, Z80& z80, ULA& ula)
         {
             return false;
         }
-        (void)checksum;
+        uint8_t x = flag;
+        for (uint16_t i = 0; i < payload_len; i++)
+        {
+            x = static_cast<uint8_t>(x ^ payload[i]);
+        }
+        x = static_cast<uint8_t>(x ^ checksum);
+        if (x != 0)
+        {
+            log_warn("TAP: checksum mismatch len=%u xor=0x%02X", len, x);
+        }
         ingest_tape_block(flag, payload, payload_len, pending, code_start, have_code, ula);
         blocks++;
     }

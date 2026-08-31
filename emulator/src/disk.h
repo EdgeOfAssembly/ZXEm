@@ -33,19 +33,57 @@ struct SectorId
     }
 };
 
+/**
+ * @brief One CHS sector with extra copies for EDSK weak/flaky data.
+ *
+ * @c rr is advanced by @ref DiskMap::find (mutable so find can stay const).
+ */
+struct SectorSlot
+{
+    std::vector<std::vector<uint8_t>> copies;
+    mutable size_t rr = 0;
+};
+
 /** @brief In-memory CHS sector store (EDSK). */
 class DiskMap
 {
 public:
-    std::map<SectorId, std::vector<uint8_t>> sectors;
+    std::map<SectorId, SectorSlot> sectors;
 
+    /**
+     * @brief Store a sector copy; appends if CHS already exists (weak sector).
+     * @param[in] c Cylinder.
+     * @param[in] h Head.
+     * @param[in] r Sector ID.
+     * @param[in] p Payload bytes.
+     * @param[in] n Payload length.
+     */
     void put(uint8_t c, uint8_t h, uint8_t r, const uint8_t* p, size_t n);
+
+    /**
+     * @brief Replace all copies at CHS with one payload (FDC write).
+     * @param[in] c Cylinder.
+     * @param[in] h Head.
+     * @param[in] r Sector ID.
+     * @param[in] p Payload bytes.
+     * @param[in] n Payload length.
+     */
+    void put_replace(uint8_t c, uint8_t h, uint8_t r, const uint8_t* p, size_t n);
+
+    /**
+     * @brief Return one copy at CHS, rotating among weak copies on each call.
+     * @param[in] c Cylinder.
+     * @param[in] h Head.
+     * @param[in] r Sector ID.
+     * @param[out] len Byte length of the returned copy, or 0 if missing.
+     * @return Pointer into the stored copy, or nullptr.
+     */
     const uint8_t* find(uint8_t c, uint8_t h, uint8_t r, size_t* len) const;
     bool empty() const { return sectors.empty(); }
 };
 
 /**
- * @brief Minimal uPD765 for +3DOS READ DATA / SEEK / RECALIBRATE.
+ * @brief Minimal uPD765 for +3DOS READ/WRITE DATA, SEEK, and RECALIBRATE.
  *
  * Ports: 0x2FFD MSR, 0x3FFD data. Not a full 765.
  */
@@ -81,6 +119,7 @@ private:
     int res_pos_;
     std::vector<uint8_t> exec_;
     size_t exec_pos_;
+    bool exec_write_;
     uint8_t cyl_;
     uint8_t st0_;
     bool interrupt_;
@@ -120,8 +159,10 @@ private:
     uint8_t sys_;
     std::vector<uint8_t> buf_;
     size_t buf_pos_;
+    size_t write_off_;
     bool drq_;
     bool intrq_;
+    bool writing_;
 };
 
 bool disk_load_dsk(const uint8_t* data, size_t size, Z80& z80, ULA& ula);

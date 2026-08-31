@@ -84,6 +84,40 @@ TEST_CASE("vfs_read loads a zip member without extracting to disk")
     rmdir(dir);
 }
 
+TEST_CASE("vfs_read splits on the first zip prefix when the archive path contains #")
+{
+    char dir[] = "/tmp/zxem-vfs-XXXXXX";
+    REQUIRE(mkdtemp(dir) != nullptr);
+    const std::string zip_path = std::string(dir) + "/t#1.zip";
+
+    int err = 0;
+    zip_t* z = zip_open(zip_path.c_str(), ZIP_CREATE | ZIP_TRUNCATE, &err);
+    REQUIRE(z != nullptr);
+    const char payload[] = "ZX";
+    zip_source_t* src = zip_source_buffer(z, payload, 2, 0);
+    REQUIRE(src != nullptr);
+    REQUIRE(zip_file_add(z, "Games/x.tap", src, ZIP_FL_OVERWRITE) >= 0);
+    REQUIRE(zip_close(z) == 0);
+
+    const std::string spec = zip_path + "#Games/x.tap";
+    std::string archive;
+    std::string member;
+    REQUIRE(vfs_split_spec(spec, archive, member));
+    REQUIRE(archive == zip_path);
+    REQUIRE(member == "Games/x.tap");
+
+    VfsBlob blob;
+    REQUIRE(vfs_read(spec, blob));
+    REQUIRE(blob.data.size() == 2);
+    REQUIRE(blob.data[0] == 'Z');
+    REQUIRE(blob.data[1] == 'X');
+    REQUIRE(blob.member == "Games/x.tap");
+    REQUIRE(blob.name == "x.tap");
+
+    unlink(zip_path.c_str());
+    rmdir(dir);
+}
+
 TEST_CASE("kMaxVfsBytes is 32 MiB")
 {
     REQUIRE(kMaxVfsBytes == (32ull << 20));

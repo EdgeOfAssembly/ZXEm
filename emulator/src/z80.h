@@ -33,6 +33,14 @@ public:
      */
     bool can_take_irq() const { return IFF1 && !irq_deferred; }
 
+    /**
+     * @brief Accept a maskable INT. Caller must have checked @ref can_take_irq.
+     * @return 13 T (IM 0/1) or 19 T (IM 2), plus ULA contention from stack/vector accesses.
+     * @note INTACK is an M1 cycle (R increments). Clears IFF1/IFF2, ends HALT, and
+     *       drops the EI guard. IM 2 vector is @c (I<<8)|0xFF (ULA data bus 0xFF).
+     */
+    int irq_ack();
+
     uint16_t getAF() const { return ((uint16_t)A << 8) | F; }
     uint16_t getBC() const { return ((uint16_t)B << 8) | C; }
     uint16_t getDE() const { return ((uint16_t)D << 8) | E; }

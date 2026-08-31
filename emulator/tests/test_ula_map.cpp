@@ -43,9 +43,29 @@ TEST_CASE("bitmap address differs for scanlines in the same cell")
     ula.ram_banks[5][0x1800] = 0x07; /* white ink, black paper */
     uint32_t pixels[ULA::SCREEN_WIDTH * ULA::SCREEN_HEIGHT];
     ula.renderFrame(pixels, ULA::SCREEN_WIDTH * 4);
-    REQUIRE(pixels[0] != pixels[ULA::SCREEN_WIDTH]);
-    REQUIRE(pixels[0] == 0xFFCDCDCD); /* ink 7, bit7 set */
-    REQUIRE(pixels[1] == 0xFF000000); /* paper */
+    const int idx = (ULA::ULA_FIRST_LINE * ULA::SCREEN_WIDTH) + ULA::BORDER_LEFT;
+    REQUIRE(pixels[idx] != pixels[idx + ULA::SCREEN_WIDTH]);
+    REQUIRE(pixels[idx] == 0xFFCDCDCD); /* ink 7, bit7 set */
+    REQUIRE(pixels[idx + 1] == 0xFF000000); /* paper */
+}
+
+TEST_CASE("renderFrame draws per-line border around paper")
+{
+    ULA ula;
+    ula.reset();
+    ula.ram_banks[5][0] = 0x80;
+    ula.ram_banks[5][0x1800] = 0x07; /* white ink, black paper */
+    ula.line = ULA::ULA_FIRST_LINE;
+    ula.ioWrite(0x00FE, 0x05);
+    uint32_t pixels[ULA::SCREEN_WIDTH * ULA::SCREEN_HEIGHT];
+    ula.renderFrame(pixels, ULA::SCREEN_WIDTH * 4);
+    const int row = ULA::ULA_FIRST_LINE * ULA::SCREEN_WIDTH;
+    const int paper = row + ULA::BORDER_LEFT;
+    REQUIRE(pixels[row] == 0xFF00CDCD); /* left border, colour 5, never bright */
+    REQUIRE(pixels[paper - 1] == 0xFF00CDCD);
+    REQUIRE(pixels[paper] == 0xFFCDCDCD); /* paper ink from bitmap */
+    REQUIRE(pixels[paper + ULA::PAPER_WIDTH] == 0xFF00CDCD); /* right border */
+    REQUIRE(pixels[0] == 0xFF000000); /* other lines stay border 0 */
 }
 
 TEST_CASE("isContended uses line window not integer divide")

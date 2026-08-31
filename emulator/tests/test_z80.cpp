@@ -175,25 +175,9 @@ TEST_CASE("maskable INT fires once per frame from EI HALT")
             {
                 if (z80.can_take_irq())
                 {
-                    z80.IFF1 = z80.IFF2 = false;
-                    z80.halted = false;
-                    ula.step(7);
-                    z80.SP = static_cast<uint16_t>(z80.SP - 2);
-                    ula.write(z80.SP, static_cast<uint8_t>(z80.PC & 0xFF));
-                    ula.write(static_cast<uint16_t>(z80.SP + 1), static_cast<uint8_t>(z80.PC >> 8));
-                    if (z80.IM == 2)
-                    {
-                        const uint16_t vec =
-                            static_cast<uint16_t>((static_cast<uint16_t>(z80.I) << 8) | 0xFF);
-                        const uint8_t lo = ula.read(vec);
-                        const uint8_t hi = ula.read(static_cast<uint16_t>(vec + 1));
-                        z80.PC = static_cast<uint16_t>(lo | (static_cast<uint16_t>(hi) << 8));
-                    }
-                    else
-                    {
-                        z80.PC = 0x0038;
-                    }
-                    ts += 7;
+                    const int irq_t = z80.irq_ack();
+                    ula.step(irq_t);
+                    ts += irq_t;
                     irqs++;
                     if (z80.PC == 0x0038)
                     {
@@ -353,6 +337,56 @@ TEST_CASE("HALT increments R each phantom M1")
     REQUIRE(z.R == 0x82);
     z.execute();
     REQUIRE(z.R == 0x83);
+}
+
+TEST_CASE("irq_ack IM1 is 13 T uncontended and vectors to 0x0038")
+{
+    ULA ula;
+    Z80 z;
+    z.ula = &ula;
+    ula.reset();
+    z.reset();
+    z.IM = 1;
+    z.IFF1 = z.IFF2 = true;
+    z.halted = true;
+    z.irq_deferred = true;
+    z.PC = 0x1234; /* ROM */
+    z.SP = 0xFFFE; /* uncontended 48K RAM */
+    z.R = 0x10;
+    const int t = z.irq_ack();
+    REQUIRE(t == 13);
+    REQUIRE(z.PC == 0x0038);
+    REQUIRE(z.R == 0x11);
+    REQUIRE_FALSE(z.IFF1);
+    REQUIRE_FALSE(z.IFF2);
+    REQUIRE_FALSE(z.halted);
+    REQUIRE_FALSE(z.irq_deferred);
+    REQUIRE(z.SP == 0xFFFC);
+    REQUIRE(ula.read(0xFFFC) == 0x34);
+    REQUIRE(ula.read(0xFFFD) == 0x12);
+}
+
+TEST_CASE("irq_ack IM2 is 19 T uncontended")
+{
+    ULA ula;
+    Z80 z;
+    z.ula = &ula;
+    ula.reset();
+    z.reset();
+    z.IM = 2;
+    z.I = 0x80;
+    z.IFF1 = z.IFF2 = true;
+    z.PC = 0x0100; /* ROM */
+    z.SP = 0xFFFE;
+    z.R = 0x20;
+    ula.write(0x80FF, 0x00);
+    ula.write(0x8100, 0xC0);
+    const int t = z.irq_ack();
+    REQUIRE(t == 19);
+    REQUIRE(z.PC == 0xC000);
+    REQUIRE(z.R == 0x21);
+    REQUIRE_FALSE(z.IFF1);
+    REQUIRE(z.SP == 0xFFFC);
 }
 
 TEST_CASE("EI defers IRQ until after the guard instruction")

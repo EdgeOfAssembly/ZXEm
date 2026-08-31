@@ -71,10 +71,8 @@ def test_help_lists_system_rom_and_disk_flags() -> None:
 
 def _tiny_tap() -> bytes:
     """Minimal TAP: CODE header + 1-byte RET payload (same layout as Catch2)."""
-    header = bytes(
+    hdr_body = bytes(
         [
-            19,
-            0,
             0x00,
             3,
             *b"TEST      ",
@@ -84,10 +82,17 @@ def _tiny_tap() -> bytes:
             0x80,
             0x00,
             0x80,
-            0x00,
         ]
     )
-    data = bytes([3, 0, 0xFF, 0xC9, 0x00])
+    hx = 0
+    for b in hdr_body:
+        hx ^= b
+    header = bytes([19, 0]) + hdr_body + bytes([hx])
+    data_body = bytes([0xFF, 0xC9])
+    dx = 0
+    for b in data_body:
+        dx ^= b
+    data = bytes([3, 0]) + data_body + bytes([dx])
     return header + data
 
 

@@ -27,6 +27,27 @@ void Z80::reset() {
     extra_t = 0;
 }
 
+int Z80::irq_ack()
+{
+    extra_t = 0;
+    IFF1 = IFF2 = false;
+    halted = false;
+    irq_deferred = false;
+    inc_R();
+    memWrite(--SP, static_cast<uint8_t>(PC >> 8));
+    memWrite(--SP, static_cast<uint8_t>(PC & 0xFF));
+    if (IM == 2)
+    {
+        const uint16_t vec = static_cast<uint16_t>((static_cast<uint16_t>(I) << 8) | 0xFF);
+        const uint8_t lo = memRead(vec);
+        const uint8_t hi = memRead(static_cast<uint16_t>(vec + 1));
+        PC = static_cast<uint16_t>(lo | (static_cast<uint16_t>(hi) << 8));
+        return finish(19);
+    }
+    PC = 0x0038;
+    return finish(13);
+}
+
 bool Z80::parity(uint8_t v) {
     v ^= v >> 4;
     v ^= v >> 2;

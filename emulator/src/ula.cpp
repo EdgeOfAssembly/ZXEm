@@ -15,10 +15,10 @@ constexpr uint32_t kPalette[16] = {
     0xFF00FF00, 0xFF00FFFF, 0xFFFFFF00, 0xFFFFFFFF
 };
 
-constexpr std::array<uint16_t, ULA::SCREEN_HEIGHT> kLineBmp = []()
+constexpr std::array<uint16_t, ULA::PAPER_HEIGHT> kLineBmp = []()
 {
-    std::array<uint16_t, ULA::SCREEN_HEIGHT> t{};
-    for (int y = 0; y < ULA::SCREEN_HEIGHT; y++)
+    std::array<uint16_t, ULA::PAPER_HEIGHT> t{};
+    for (int y = 0; y < ULA::PAPER_HEIGHT; y++)
     {
         t[static_cast<size_t>(y)] = static_cast<uint16_t>(
             ((y & 0xC0) << 5) | ((y & 0x07) << 8) | ((y & 0x38) << 2));
@@ -360,13 +360,24 @@ void ULA::renderFrame(uint32_t* pixels, int pitch)
     const int stride = pitch / 4;
     const bool flash_on = flash;
 
-    /* Paper only (256×192). border_line[ULA_FIRST_LINE + y] holds the last
-     * border on that scanline for a future 352-wide blit; do not expand here. */
     for (int y = 0; y < SCREEN_HEIGHT; y++)
     {
-        const uint8_t* bits = scr + kLineBmp[static_cast<size_t>(y)];
-        const uint8_t* attrs = scr + 0x1800 + ((y >> 3) << 5);
-        uint32_t* dst = pixels + y * stride;
+        const uint8_t bc = (static_cast<unsigned>(y) < 312u) ? border_line[y] : 0;
+        const uint32_t border_c = kPalette[bc & 7];
+        uint32_t* const row = pixels + y * stride;
+        for (int x = 0; x < SCREEN_WIDTH; x++)
+        {
+            row[x] = border_c;
+        }
+
+        if (static_cast<unsigned>(y - ULA_FIRST_LINE) >= static_cast<unsigned>(PAPER_HEIGHT))
+        {
+            continue;
+        }
+        const int py = y - ULA_FIRST_LINE;
+        const uint8_t* bits = scr + kLineBmp[static_cast<size_t>(py)];
+        const uint8_t* attrs = scr + 0x1800 + ((py >> 3) << 5);
+        uint32_t* dst = row + BORDER_LEFT;
         for (int col = 0; col < 32; col++)
         {
             const uint8_t bitmap = bits[col];

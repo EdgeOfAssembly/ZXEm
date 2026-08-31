@@ -85,12 +85,14 @@ TEST_CASE("AY mix amplitude exceeds beeper at full channel volume")
     ula.ay.writeReg(9, 0);
     ula.ay.writeReg(10, 0);
     ula.beeper_state = false;
-    const float ay_only = std::fabs(ula.currentAudioSample());
 
-    ula.ay.writeReg(8, 0);
-    ula.beeper_state = true;
-    const float beep_only = std::fabs(ula.currentAudioSample());
+    /* currentAudioSample() always adds ±kBeepAmp; subtract the low-beep offset. */
+    constexpr float kBeepAmp = 0.10f;
+    constexpr float kAyMix = 0.70f;
+    const float ay_only = ula.currentAudioSample() - (-kBeepAmp);
+    const float ay_scaled = kAyMix * ula.ay.sample();
 
-    /* kAyMix 0.70 vs kBeepAmp 0.10: one full AY channel must dominate EAR. */
-    REQUIRE(ay_only > beep_only);
+    REQUIRE(std::fabs(ay_only - ay_scaled) < 1.0e-6f);
+    /* One full-volume channel: 0.70 * (DAC/3) must exceed kBeepAmp 0.10. */
+    REQUIRE(ay_scaled > kBeepAmp);
 }

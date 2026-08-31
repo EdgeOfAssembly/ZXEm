@@ -22,14 +22,27 @@ void DiskMap::put(uint8_t c, uint8_t h, uint8_t r, const uint8_t* p, size_t n)
         return;
     }
     SectorId id{c, h, r};
-    sectors[id].assign(p, p + n);
+    sectors[id].copies.emplace_back(p, p + n);
+}
+
+void DiskMap::put_replace(uint8_t c, uint8_t h, uint8_t r, const uint8_t* p, size_t n)
+{
+    if (p == nullptr || n == 0)
+    {
+        return;
+    }
+    SectorId id{c, h, r};
+    SectorSlot& slot = sectors[id];
+    slot.copies.clear();
+    slot.copies.emplace_back(p, p + n);
+    slot.rr = 0;
 }
 
 const uint8_t* DiskMap::find(uint8_t c, uint8_t h, uint8_t r, size_t* len) const
 {
     SectorId id{c, h, r};
     const auto it = sectors.find(id);
-    if (it == sectors.end())
+    if (it == sectors.end() || it->second.copies.empty())
     {
         if (len != nullptr)
         {
@@ -37,11 +50,15 @@ const uint8_t* DiskMap::find(uint8_t c, uint8_t h, uint8_t r, size_t* len) const
         }
         return nullptr;
     }
+    const SectorSlot& slot = it->second;
+    const size_t ncopy = slot.copies.size();
+    const size_t i = slot.rr % ncopy;
+    slot.rr = i + 1u;
     if (len != nullptr)
     {
-        *len = it->second.size();
+        *len = slot.copies[i].size();
     }
-    return it->second.data();
+    return slot.copies[i].data();
 }
 
 namespace
@@ -61,14 +78,20 @@ void inject(ULA& ula, uint16_t dest, const uint8_t* p, size_t n)
     {
         return;
     }
+    bool clipped = false;
     for (size_t i = 0; i < n; i++)
     {
         const uint32_t a = static_cast<uint32_t>(dest) + static_cast<uint32_t>(i);
         if (a > 0xFFFF)
         {
+            clipped = true;
             break;
         }
         ula.write(static_cast<uint16_t>(a), p[i]);
+    }
+    if (clipped)
+    {
+        log_warn("inject: clipped at 64K dest=0x%04X n=%zu", dest, n);
     }
 }
 
@@ -138,7 +161,23 @@ bool parse_edsk(const uint8_t* data, size_t size, DiskMap& map)
             {
                 break;
             }
-            map.put(sc.c, sc.h, sc.r, trk + bpos, slen);
+            uint32_t one = 128u << (sc.n & 7);
+            if (one == 0)
+            {
+                one = slen == 0 ? 1u : slen;
+            }
+            if (slen >= 2u * one)
+            {
+                const uint32_t ncopy = slen / one;
+                for (uint32_t k = 0; k < ncopy; k++)
+                {
+                    map.put(sc.c, sc.h, sc.r, trk + bpos + static_cast<size_t>(k) * one, one);
+                }
+            }
+            else
+            {
+                map.put(sc.c, sc.h, sc.r, trk + bpos, slen);
+            }
             bpos += slen;
         }
     }
@@ -351,16 +390,18 @@ void scan_plus3_raw(const DiskMap& map, Z80& z80, ULA& ula, uint16_t& jump, bool
 {
     for (const auto& kv : map.sectors)
     {
-        const auto& sec = kv.second;
-        for (size_t off = 0; off + 128 <= sec.size(); off += 128)
+        for (const auto& sec : kv.second.copies)
         {
-            if (memcmp(sec.data() + off, "PLUS3DOS", 8) != 0)
+            for (size_t off = 0; off + 128 <= sec.size(); off += 128)
             {
-                continue;
+                if (memcmp(sec.data() + off, "PLUS3DOS", 8) != 0)
+                {
+                    continue;
+                }
+                std::vector<uint8_t> fake(sec.begin() + static_cast<std::ptrdiff_t>(off), sec.end());
+                /* Body may continue in later sectors of the same file; use this sector as a minimum. */
+                plus3_inject(fake, z80, ula, jump, have);
             }
-            std::vector<uint8_t> fake(sec.begin() + static_cast<std::ptrdiff_t>(off), sec.end());
-            /* Body may continue in later sectors of the same file; use this sector as a minimum. */
-            plus3_inject(fake, z80, ula, jump, have);
         }
     }
 }
@@ -451,6 +492,15 @@ size_t mgt_off(int track, int sector, int side)
     return static_cast<size_t>(((track * 2 + side) * 10 + (sector - 1))) * 512u;
 }
 
+size_t d80_off(int track, int sector, int side)
+{
+    if (sector < 1)
+    {
+        sector = 1;
+    }
+    return static_cast<size_t>(((track * 2 + side) * 9 + (sector - 1))) * 512u;
+}
+
 } // namespace
 
 Upd765::Upd765()
@@ -467,6 +517,7 @@ void Upd765::reset()
     res_pos_ = 0;
     exec_.clear();
     exec_pos_ = 0;
+    exec_write_ = false;
     cyl_ = 0;
     st0_ = 0;
     interrupt_ = false;
@@ -513,6 +564,7 @@ void Upd765::result_st(uint8_t st0, uint8_t st1, uint8_t st2, uint8_t c, uint8_t
     res_pos_ = 0;
     phase_ = PhaseRes;
     exec_.clear();
+    exec_write_ = false;
 }
 
 void Upd765::start_command()
@@ -584,9 +636,32 @@ void Upd765::start_command()
     }
     if (op == 0x05 || op == 0x09)
     {
-        /* WRITE DATA / WRITE DELETED — not implemented. */
-        log_warn("uPD765: write command 0x%02X not implemented", cmd_[0]);
-        result_st(0x40, 0x02, 0x00, cmd_[2], cmd_[3], cmd_[4], cmd_[5]); /* AT, NW */
+        const uint8_t c = cmd_[2];
+        const uint8_t h = cmd_[3];
+        const uint8_t r = cmd_[4];
+        const uint8_t n = cmd_[5];
+        if (disk == nullptr)
+        {
+            result_st(0x40, 0x02, 0x00, c, h, r, n); /* AT, NW */
+            cmd_got_ = 0;
+            return;
+        }
+        size_t nlen = 128u << (n & 7);
+        const SectorId id{c, h, r};
+        const auto it = disk->sectors.find(id);
+        if (it != disk->sectors.end() && !it->second.copies.empty() && !it->second.copies[0].empty())
+        {
+            nlen = it->second.copies[0].size();
+        }
+        if (nlen == 0)
+        {
+            nlen = 256;
+        }
+        exec_.assign(nlen, 0);
+        exec_pos_ = 0;
+        exec_write_ = true;
+        phase_ = PhaseExec;
+        cyl_ = c;
         cmd_got_ = 0;
         return;
     }
@@ -606,6 +681,7 @@ void Upd765::start_command()
         }
         exec_.assign(p, p + nlen);
         exec_pos_ = 0;
+        exec_write_ = false;
         phase_ = PhaseExec;
         cyl_ = c;
         cmd_got_ = 0;
@@ -618,7 +694,7 @@ void Upd765::start_command()
 uint8_t Upd765::read_msr() const
 {
     uint8_t m = 0x80; /* RQM */
-    if (phase_ == PhaseRes || phase_ == PhaseExec)
+    if (phase_ == PhaseRes || (phase_ == PhaseExec && !exec_write_))
     {
         m |= 0x40; /* DIO FDC→CPU */
     }
@@ -664,6 +740,22 @@ uint8_t Upd765::read_data()
 
 void Upd765::write_data(uint8_t val)
 {
+    if (phase_ == PhaseExec && exec_write_)
+    {
+        if (exec_pos_ < exec_.size())
+        {
+            exec_[exec_pos_++] = val;
+        }
+        if (exec_pos_ >= exec_.size())
+        {
+            if (disk != nullptr && !exec_.empty())
+            {
+                disk->put_replace(cmd_[2], cmd_[3], cmd_[4], exec_.data(), exec_.size());
+            }
+            result_st(0x00, 0x00, 0x00, cmd_[2], cmd_[3], cmd_[4], cmd_[5]);
+        }
+        return;
+    }
     if (phase_ != PhaseCmd)
     {
         return;
@@ -706,8 +798,10 @@ void Vg93::reset()
     sys_ = 0x3C;
     buf_.clear();
     buf_pos_ = 0;
+    write_off_ = 0;
     drq_ = false;
     intrq_ = false;
+    writing_ = false;
 }
 
 void Vg93::set_image(const uint8_t* data, size_t size)
@@ -770,6 +864,30 @@ uint8_t Vg93::read_data()
 void Vg93::write_data(uint8_t val)
 {
     data_ = val;
+    if (!writing_ || buf_.empty() || buf_pos_ >= buf_.size())
+    {
+        return;
+    }
+    buf_[buf_pos_++] = val;
+    if (buf_pos_ < buf_.size())
+    {
+        drq_ = true;
+        status_ = 0x03; /* busy + DRQ */
+        return;
+    }
+    constexpr size_t kTrdMax = 2544u * 256u;
+    if (write_off_ + 256u <= kTrdMax)
+    {
+        if (write_off_ + 256u > image.size())
+        {
+            image.resize(write_off_ + 256u, 0);
+        }
+        std::memcpy(image.data() + write_off_, buf_.data(), 256);
+    }
+    writing_ = false;
+    drq_ = false;
+    intrq_ = true;
+    status_ = (track == 0) ? 0x04 : 0x00;
 }
 
 void Vg93::write_system(uint8_t val)
@@ -781,6 +899,8 @@ void Vg93::write_system(uint8_t val)
 
 void Vg93::write_command(uint8_t val)
 {
+    writing_ = false;
+    write_off_ = 0;
     intrq_ = false;
     drq_ = false;
     buf_.clear();
@@ -823,10 +943,22 @@ void Vg93::write_command(uint8_t val)
         status_ = (track == 0) ? 0x04 : 0x00;
         return;
     }
-    /* WRITE SECTOR 0xA0 / WRITE TRACK 0xF0: not implemented — do not fake OK. */
-    if ((val & 0xE0) == 0xA0 || (val & 0xF0) == 0xF0)
+    if ((val & 0xE0) == 0xA0)
     {
-        log_warn("VG93: write/format 0x%02X not implemented (write-protect)", val);
+        const uint8_t sec = sector == 0 ? 1 : sector;
+        const size_t logical = (static_cast<size_t>(track) * 2 + side) * 16u + (sec - 1u);
+        write_off_ = logical * 256u;
+        buf_.assign(256, 0);
+        buf_pos_ = 0;
+        writing_ = true;
+        drq_ = true;
+        status_ = 0x03; /* busy + DRQ */
+        return;
+    }
+    /* WRITE TRACK 0xF0: format is not implemented — do not fake OK. */
+    if ((val & 0xF0) == 0xF0)
+    {
+        log_warn("VG93: format 0x%02X not implemented (write-protect)", val);
         status_ = 0x40; /* WP */
         if (track == 0)
         {
@@ -1270,8 +1402,113 @@ bool disk_load_d80(const uint8_t* data, size_t size, Z80& z80, ULA& ula)
     {
         return true;
     }
-    /* Didaktik MDOS: 256-byte dirents at the start, similar to MGT. */
-    return disk_load_mgt(data, size, z80, ula);
+    /* Didaktik D80/D40: 80/40 cyl × 2 sides × 9 × 512, not MGT 10-sector. */
+    log_info("D80/D40: 9-sector MDOS geometry");
+    uint16_t jump = 0;
+    bool have = false;
+    for (int i = 0; i < 80; i++)
+    {
+        const size_t eoff = static_cast<size_t>(i) * 256;
+        if (eoff + 256 > size)
+        {
+            break;
+        }
+        const uint8_t* e = data + eoff;
+        const uint8_t typ = static_cast<uint8_t>(e[0] & 0x3F);
+        if (typ == 0)
+        {
+            continue;
+        }
+        char name[11];
+        std::memcpy(name, e + 1, 10);
+        name[10] = 0;
+        bool named = false;
+        for (int k = 0; k < 10; k++)
+        {
+            const unsigned char c = static_cast<unsigned char>(name[k]);
+            if (c >= 32 && c < 127 && c != ' ')
+            {
+                named = true;
+                break;
+            }
+        }
+        if (!named)
+        {
+            continue;
+        }
+        uint16_t nsec = static_cast<uint16_t>((e[11] << 8) | e[12]);
+        if (nsec == 0)
+        {
+            nsec = 1;
+        }
+        const uint8_t trk = e[13];
+        const uint8_t sec = e[14] == 0 ? 1 : e[14];
+        uint8_t zxtype = e[210];
+        uint16_t zxlen = static_cast<uint16_t>(e[211] | (e[212] << 8));
+        uint16_t zxstart = static_cast<uint16_t>(e[213] | (e[214] << 8));
+        if (zxlen == 0 || zxlen > 0xC000)
+        {
+            zxlen = static_cast<uint16_t>(e[212] | (e[213] << 8));
+            zxstart = static_cast<uint16_t>(e[214] | (e[215] << 8));
+            zxtype = e[211];
+        }
+        size_t off = d80_off(trk, sec, 0);
+        if (off >= size)
+        {
+            off = d80_off(trk, sec, 1);
+        }
+        size_t nbytes = static_cast<size_t>(nsec) * 512u;
+        if (off >= size)
+        {
+            continue;
+        }
+        if (off + nbytes > size)
+        {
+            nbytes = size - off;
+        }
+        const uint8_t* body = data + off;
+        log_info("D80 type=%u name=\"%s\" trk=%u sec=%u start=0x%04X len=%u",
+                 typ, name, trk, sec, zxstart, zxlen);
+        if (typ == 4 || typ == 7 || zxtype == 3)
+        {
+            const uint16_t dest = zxstart != 0 ? zxstart : 0x8000;
+            const size_t n = zxlen != 0 ? std::min(static_cast<size_t>(zxlen), nbytes) : nbytes;
+            inject(ula, dest, body, n);
+            jump = dest;
+            have = true;
+        }
+        else if (typ == 5 || typ == 9)
+        {
+            const size_t ram_n = std::min(nbytes, static_cast<size_t>(49152));
+            inject(ula, 0x4000, body, ram_n);
+            jump = zxstart != 0 ? zxstart : 0x5D00;
+            have = true;
+        }
+        else if (typ == 1 || zxtype == 0)
+        {
+            const size_t n = zxlen != 0 ? std::min(static_cast<size_t>(zxlen), nbytes) : nbytes;
+            inject(ula, 0x5CCB, body, n);
+        }
+        else if (typ == 11)
+        {
+            const uint16_t dest = zxstart != 0 ? zxstart : 0x8000;
+            inject(ula, dest, body, std::min(static_cast<size_t>(zxlen ? zxlen : nbytes), nbytes));
+            jump = dest;
+            have = true;
+        }
+    }
+    cpu_ready(z80);
+    if (have)
+    {
+        z80.PC = jump;
+        log_info("D80 MDOS CODE jump 0x%04X", jump);
+    }
+    else
+    {
+        z80.PC = 0x0000;
+        log_info("D80 mounted (%zu bytes, 9-sector); no CODE — Beta image attached", size);
+    }
+    return true;
 }
 
 bool disk_load_spg(const uint8_t* data, size_t size, Z80& z80, ULA& ula)

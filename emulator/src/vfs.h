@@ -32,9 +32,10 @@ bool vfs_size_ok(uint64_t n);
 /**
  * @brief Split `archive.zip#member` / `archive.zip:member` / plain path.
  *
- * A `#` is a zip-member separator only when the prefix before `#` is an
- * existing zip (`vfs_is_zip`). Otherwise the whole @p spec is a plain path
- * (so a file named `Foo #1.tap` is reachable). Colon members use the same
+ * Every `#` is tried from the left; the first prefix that is an existing
+ * zip (`vfs_is_zip`) wins and the rest is the member (which may contain
+ * `#`). Otherwise the whole @p spec is a plain path (so `hi#there.tap`
+ * and `Foo #1.tap` stay reachable). Colon members use the same
  * prefix-is-zip rule (and skip `X:` drive letters via `colon > 1`).
  *
  * @param[in]  spec    User path.

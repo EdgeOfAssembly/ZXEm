@@ -4,9 +4,9 @@
  *
  * Walks a nondeterministic buffer of size @c n <= 8, matching ByteCursor
  * (pointer + length + index) and TapeDeck::load_tap:
- * while remaining >= 2, read uint16le @c len; stop if @c len < 2 or the
- * bytes after the length word are fewer than @c len; otherwise consume
- * flag + payload + checksum (@c len bytes, payload @c len-2).
+ * while remaining >= 2, read uint16le @c len; stop if the bytes after the
+ * length word are fewer than @c len; skip @c len 0/1 (FUSE-style); otherwise
+ * consume flag + payload + checksum (@c len bytes, payload @c len-2).
  *
  * Bound @c n <= 8 keeps @c --unwind 8 --unwinding-assertions viable
  * (each accepted block consumes at least 4 bytes; a rejected length word
@@ -141,10 +141,26 @@ int main(void)
 
         const size_t i_before = c.i;
         uint16_t len = 0;
-        if (!cursor_get16le(&c, &len) || len < 2u || cursor_remaining(&c) < (size_t)len)
+        if (!cursor_get16le(&c, &len) || cursor_remaining(&c) < (size_t)len)
         {
             __CPROVER_assert(c.i <= n, "stop: cursor <= n");
             break;
+        }
+        /* FUSE-style: len 0/1 is skipped; the rest of the tape still parses. */
+        if (len == 0u)
+        {
+            __CPROVER_assert(c.i <= n, "len0: cursor <= n");
+            continue;
+        }
+        if (len == 1u)
+        {
+            uint8_t dummy = 0;
+            if (!cursor_get8(&c, &dummy))
+            {
+                break;
+            }
+            __CPROVER_assert(c.i <= n, "len1: cursor <= n");
+            continue;
         }
 
         /* flag + payload + checksum: len bytes after the length word. */

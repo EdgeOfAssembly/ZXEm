@@ -1,14 +1,13 @@
 /**
  * @file edsk_track.c
- * @brief Bounded CBMC model of EDSK extended track-size accumulation (disk.cpp).
+ * @brief Bounded CBMC model of EDSK extended track-size cursor walk (disk.cpp).
  *
- * parse_edsk uses @c track_bytes = size_byte * 256u for each extended-disk
- * track-size table entry. This harness sums a nondeterministic number of
- * tracks with @c ntracks <= 3 so @c --unwind 4 --unwinding-assertions stays
- * viable (a 4-trip loop fails the unwinding assertion at unwind 4; CBMC
- * needs one spare unrolling to prove exit). Proves the add cannot wrap
- * uint32 and the total matches the algebraic sum, with the closed bound
- * 4 * 255 * 256.
+ * parse_edsk starts at pos = 0x100 and for each track-size table byte
+ * computes tsz = size_byte * 256. Zero-size tracks are skipped; if
+ * pos + tsz would pass the file length, the walk stops (no add).
+ * ntracks <= 3 so --unwind 4 --unwinding-assertions stays viable
+ * (a 4-trip loop fails the unwinding assertion at unwind 4; CBMC
+ * needs one spare unrolling to prove exit).
  */
 
 #include <stdint.h>
@@ -25,7 +24,9 @@
  */
 enum
 {
-    EDSK_MAX_TRACKS = 3
+    EDSK_MAX_TRACKS = 3,
+    EDSK_HEADER = 0x100,
+    EDSK_MAX_FILE = 1024
 };
 
 /**
@@ -40,35 +41,51 @@ uint32_t edsk_track_bytes(uint8_t size_byte)
 }
 
 /**
- * @brief Accumulate @c ntracks table entries without uint32 overflow.
+ * @brief Walk a nondeterministic EDSK track-size table without wrapping.
  *
  * @return 0 (CBMC harness).
  */
 int main(void)
 {
+    uint32_t n;
+    __CPROVER_assume(n >= (uint32_t)EDSK_HEADER);
+    __CPROVER_assume(n <= (uint32_t)EDSK_MAX_FILE);
+
     uint8_t ntracks;
     __CPROVER_assume(ntracks <= (uint8_t)EDSK_MAX_TRACKS);
 
-    uint8_t size_byte[EDSK_MAX_TRACKS];
-    uint32_t total = 0;
-    uint32_t raw_sum = 0;
+    uint32_t pos = (uint32_t)EDSK_HEADER;
 
     for (uint32_t i = 0; i < (uint32_t)ntracks; i++)
     {
         __CPROVER_assert(i < (uint32_t)EDSK_MAX_TRACKS, "track index in table");
-        const uint8_t sb = size_byte[i];
-        const uint32_t tsz = edsk_track_bytes(sb);
 
-        __CPROVER_assert(tsz == (uint32_t)sb * 256u, "scale");
+        uint8_t size_byte;
+        const uint32_t tsz = edsk_track_bytes(size_byte);
+
+        __CPROVER_assert(tsz == (uint32_t)size_byte * 256u, "scale");
         __CPROVER_assert(tsz <= 255u * 256u, "per-track bound");
         __CPROVER_assert((tsz % 256u) == 0u, "aligned");
-        __CPROVER_assert(total <= UINT32_MAX - tsz, "no overflow");
 
-        total += tsz;
-        raw_sum += (uint32_t)sb;
+        if (tsz == 0u)
+        {
+            continue;
+        }
+
+        /* Matching parse_edsk: stop without adding if the track would pass EOF. */
+        if (pos + tsz > n)
+        {
+            break;
+        }
+
+        __CPROVER_assert(pos <= UINT32_MAX - tsz, "pos+tsz does not wrap uint32");
+        __CPROVER_assert(pos + tsz >= pos, "pos+tsz does not wrap size_t/uint32");
+        __CPROVER_assert(pos + tsz <= n, "track fits in file");
+
+        pos += tsz;
     }
 
-    __CPROVER_assert(total == raw_sum * 256u, "total == sum of size_byte * 256");
-    __CPROVER_assert(total <= 4u * 255u * 256u, "total <= 4 * 255 * 256");
+    __CPROVER_assert(pos <= n, "cursor stays inside file");
+    __CPROVER_assert(pos >= (uint32_t)EDSK_HEADER, "cursor never before header");
     return 0;
 }

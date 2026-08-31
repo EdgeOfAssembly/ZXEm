@@ -1,3 +1,4 @@
+#include "disk.h"
 #include "media.h"
 #include "snapshot.h"
 #include "tape.h"
@@ -27,12 +28,17 @@ static std::vector<uint8_t> make_tap_code()
     push16(1);      /* length */
     push16(0x8000); /* start */
     push16(0x8000);
-    tap.push_back(0x00); /* checksum dummy */
+    uint8_t hx = 0;
+    for (size_t i = tap.size() - 18; i < tap.size(); i++)
+    {
+        hx = static_cast<uint8_t>(hx ^ tap[i]);
+    }
+    tap.push_back(hx);
     /* data block: flag + 1 byte + checksum = 3 */
     push16(3);
     tap.push_back(0xFF);
     tap.push_back(0xC9); /* RET */
-    tap.push_back(0x00);
+    tap.push_back(static_cast<uint8_t>(0xFF ^ 0xC9));
     return tap;
 }
 
@@ -242,14 +248,9 @@ TEST_CASE("Knight Lore SNA starts when key 0 is held")
                 ts += t;
                 if (ula.take_frame_irq() && z80.can_take_irq())
                 {
-                    z80.IFF1 = z80.IFF2 = false;
-                    z80.halted = false;
-                    z80.SP = static_cast<uint16_t>(z80.SP - 2);
-                    ula.write(z80.SP, static_cast<uint8_t>(z80.PC & 0xFF));
-                    ula.write(static_cast<uint16_t>(z80.SP + 1),
-                              static_cast<uint8_t>(z80.PC >> 8));
-                    z80.PC = (z80.IM == 1) ? 0x0038 : z80.PC;
-                    ts += 7;
+                    const int irq_t = z80.irq_ack();
+                    ula.step(irq_t);
+                    ts += irq_t;
                 }
             }
         }
@@ -355,6 +356,214 @@ TEST_CASE("uPD765 READ DATA returns mounted EDSK sector")
     ula.fdc.write_data(0xFF);
     REQUIRE((ula.fdc.read_msr() & 0x20) != 0);
     REQUIRE(ula.fdc.read_data() == static_cast<uint8_t>('P'));
+}
+
+TEST_CASE("TAP skips a 1-byte block and still encodes the next")
+{
+    std::vector<uint8_t> tap;
+    auto push16 = [&](uint16_t v) {
+        tap.push_back(static_cast<uint8_t>(v & 0xFF));
+        tap.push_back(static_cast<uint8_t>(v >> 8));
+    };
+    push16(0);
+    push16(1);
+    tap.push_back(0xAA);
+    push16(3);
+    tap.push_back(0xFF);
+    tap.push_back(0xC9);
+    tap.push_back(static_cast<uint8_t>(0xFF ^ 0xC9));
+
+    Z80 z80;
+    ULA ula;
+    z80.ula = &ula;
+    ula.reset();
+    REQUIRE(load_tap(tap.data(), tap.size(), z80, ula));
+    REQUIRE(ula.read(0x4000) == 0xC9);
+    REQUIRE(ula.tape.pulse_count() > 0);
+
+    TapeDeck deck;
+    REQUIRE(deck.load_tap(tap.data(), tap.size()));
+    REQUIRE(deck.pulse_count() > 0);
+}
+
+TEST_CASE("TAP checksum mismatch still loads")
+{
+    std::vector<uint8_t> tap;
+    auto push16 = [&](uint16_t v) {
+        tap.push_back(static_cast<uint8_t>(v & 0xFF));
+        tap.push_back(static_cast<uint8_t>(v >> 8));
+    };
+    push16(3);
+    tap.push_back(0xFF);
+    tap.push_back(0xC9);
+    tap.push_back(0x00); /* wrong checksum (would be 0x36) */
+
+    Z80 z80;
+    ULA ula;
+    z80.ula = &ula;
+    ula.reset();
+    REQUIRE(load_tap(tap.data(), tap.size(), z80, ula));
+    REQUIRE(ula.read(0x4000) == 0xC9);
+}
+
+TEST_CASE("DiskMap weak copies rotate on find")
+{
+    DiskMap map;
+    const uint8_t a[] = {0x11, 0x22};
+    const uint8_t b[] = {0x33, 0x44};
+    map.put(0, 0, 1, a, 2);
+    map.put(0, 0, 1, b, 2);
+    size_t n0 = 0;
+    size_t n1 = 0;
+    const uint8_t* p0 = map.find(0, 0, 1, &n0);
+    const uint8_t* p1 = map.find(0, 0, 1, &n1);
+    REQUIRE(p0 != nullptr);
+    REQUIRE(p1 != nullptr);
+    REQUIRE(n0 == 2);
+    REQUIRE(n1 == 2);
+    REQUIRE(p0[0] != p1[0]);
+    const uint8_t first = p0[0];
+    const uint8_t second = p1[0];
+    REQUIRE(((first == 0x11 && second == 0x33) || (first == 0x33 && second == 0x11)));
+}
+
+TEST_CASE("EDSK weak sector data length splits into rotating copies")
+{
+    std::vector<uint8_t> d(256 + 768, 0);
+    std::memcpy(d.data(), "EXTENDED CPC DSK File\r\nDisk-Info\r\n", 34);
+    d[0x30] = 1;
+    d[0x31] = 1;
+    d[0x34] = 3;
+    uint8_t* trk = d.data() + 256;
+    std::memcpy(trk, "Track-Info\r\n", 12);
+    trk[0x14] = 1;
+    trk[0x15] = 1;
+    trk[0x18] = 0;
+    trk[0x19] = 0;
+    trk[0x1A] = 1;
+    trk[0x1B] = 1;
+    trk[0x1E] = 0x00;
+    trk[0x1F] = 0x02; /* 512 bytes = two 256-byte copies */
+    uint8_t* sec = trk + 256;
+    std::memset(sec, 0xAA, 256);
+    std::memset(sec + 256, 0xBB, 256);
+
+    VfsBlob b;
+    b.name = "weak.dsk";
+    b.data = std::move(d);
+    Z80 z80;
+    ULA ula;
+    z80.ula = &ula;
+    ula.reset();
+    REQUIRE(media_load(b, z80, ula));
+    size_t n0 = 0;
+    size_t n1 = 0;
+    const uint8_t* p0 = ula.edsk.find(0, 0, 1, &n0);
+    const uint8_t* p1 = ula.edsk.find(0, 0, 1, &n1);
+    REQUIRE(p0 != nullptr);
+    REQUIRE(p1 != nullptr);
+    REQUIRE(n0 == 256);
+    REQUIRE(n1 == 256);
+    REQUIRE(p0[0] != p1[0]);
+    REQUIRE(((p0[0] == 0xAA && p1[0] == 0xBB) || (p0[0] == 0xBB && p1[0] == 0xAA)));
+}
+
+TEST_CASE("D80 MDOS CODE uses 9-sector geometry")
+{
+    std::vector<uint8_t> d80(19 * 512, 0);
+    uint8_t* e = d80.data();
+    e[0] = 4;
+    std::memcpy(e + 1, "CODE      ", 10);
+    e[11] = 0;
+    e[12] = 1;
+    e[13] = 1;
+    e[14] = 1;
+    e[210] = 3;
+    e[211] = 1;
+    e[212] = 0;
+    e[213] = 0x00;
+    e[214] = 0x80;
+    d80[18 * 512] = 0xC9; /* track 1 side 0 sector 1 at 9 spt */
+    VfsBlob b;
+    b.name = "t.d80";
+    b.data = std::move(d80);
+    Z80 z80;
+    ULA ula;
+    z80.ula = &ula;
+    ula.reset();
+    REQUIRE(media_load(b, z80, ula));
+    REQUIRE(z80.PC == 0x8000);
+    REQUIRE(ula.read(0x8000) == 0xC9);
+}
+
+TEST_CASE("VG93 WRITE SECTOR persists and READ SECTOR returns it")
+{
+    ULA ula;
+    ula.reset();
+    std::vector<uint8_t> trd(256, 0);
+    ula.beta.set_image(trd.data(), trd.size());
+    ula.beta.track = 0;
+    ula.beta.sector = 1;
+    ula.beta.side = 0;
+    ula.beta.write_command(0xA0);
+    REQUIRE((ula.beta.read_status() & 0x02) != 0);
+    REQUIRE((ula.beta.read_status() & 0x40) == 0);
+    for (int i = 0; i < 256; i++)
+    {
+        ula.beta.write_data(0x5A);
+    }
+    ula.beta.write_command(0x80);
+    for (int i = 0; i < 256; i++)
+    {
+        REQUIRE(ula.beta.read_data() == 0x5A);
+    }
+}
+
+TEST_CASE("uPD765 WRITE DATA persists and READ DATA returns it")
+{
+    auto dsk = make_plus3_edsk();
+    VfsBlob b;
+    b.name = "t.dsk";
+    b.data = std::move(dsk);
+    Z80 z80;
+    ULA ula;
+    z80.ula = &ula;
+    ula.reset();
+    ula.setPlus3(true);
+    REQUIRE(media_load(b, z80, ula));
+    ula.fdc.write_data(0x05);
+    ula.fdc.write_data(0x00);
+    ula.fdc.write_data(0x00);
+    ula.fdc.write_data(0x00);
+    ula.fdc.write_data(0x01);
+    ula.fdc.write_data(0x02);
+    ula.fdc.write_data(0x01);
+    ula.fdc.write_data(0x2A);
+    ula.fdc.write_data(0xFF);
+    const uint8_t msr = ula.fdc.read_msr();
+    REQUIRE((msr & 0x20) != 0);
+    REQUIRE((msr & 0x40) == 0);
+    for (int i = 0; i < 512; i++)
+    {
+        ula.fdc.write_data(0x5A);
+    }
+    REQUIRE((ula.fdc.read_msr() & 0x40) != 0);
+    REQUIRE(ula.fdc.read_data() == 0x00);
+    for (int i = 0; i < 6; i++)
+    {
+        (void)ula.fdc.read_data();
+    }
+    ula.fdc.write_data(0x06);
+    ula.fdc.write_data(0x00);
+    ula.fdc.write_data(0x00);
+    ula.fdc.write_data(0x00);
+    ula.fdc.write_data(0x01);
+    ula.fdc.write_data(0x02);
+    ula.fdc.write_data(0x01);
+    ula.fdc.write_data(0x2A);
+    ula.fdc.write_data(0xFF);
+    REQUIRE((ula.fdc.read_msr() & 0x20) != 0);
+    REQUIRE(ula.fdc.read_data() == 0x5A);
 }
 
 static uint8_t z80_ram_pattern(uint32_t i)
