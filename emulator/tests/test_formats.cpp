@@ -239,9 +239,16 @@ TEST_CASE("Knight Lore SNA starts when key 0 is held")
                 const int t = z80.execute();
                 ula.step(t);
                 ts += t;
-                if (ula.frame_tstates >= 69888)
+                if (ula.take_frame_irq() && z80.IFF1)
                 {
-                    ula.frame_tstates -= 69888;
+                    z80.IFF1 = z80.IFF2 = false;
+                    z80.halted = false;
+                    z80.SP = static_cast<uint16_t>(z80.SP - 2);
+                    ula.write(z80.SP, static_cast<uint8_t>(z80.PC & 0xFF));
+                    ula.write(static_cast<uint16_t>(z80.SP + 1),
+                              static_cast<uint8_t>(z80.PC >> 8));
+                    z80.PC = (z80.IM == 1) ? 0x0038 : z80.PC;
+                    ts += 7;
                 }
             }
         }
