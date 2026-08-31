@@ -56,6 +56,48 @@ def test_order_independent_help() -> None:
     assert "Usage:" in p.stderr
 
 
+HZ50 = EMULATOR_DIR / "hz50test"
+
+
+def test_hz50test_no_args_usage() -> None:
+    p = subprocess.run(
+        [str(HZ50)],
+        cwd=EMULATOR_DIR,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert p.returncode == 0
+    assert "Usage:" in p.stderr
+    assert "--seconds" in p.stderr
+
+
+def test_hz50test_version() -> None:
+    p = subprocess.run(
+        [str(HZ50), "-v"],
+        cwd=EMULATOR_DIR,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert p.returncode == 0
+    assert "hz50test 0.1" in p.stdout
+
+
+def test_hz50test_dry_run() -> None:
+    p = subprocess.run(
+        [str(HZ50), "--dry-run", "--seconds", "3"],
+        cwd=EMULATOR_DIR,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10.0,
+    )
+    assert p.returncode == 0
+    assert "dry-run:" in p.stderr
+    assert "--mode" in p.stderr
+
+
 def test_help_lists_system_rom_and_disk_flags() -> None:
     p = run(["-h"])
     assert p.returncode == 0
@@ -64,4 +106,4 @@ def test_help_lists_system_rom_and_disk_flags() -> None:
     assert "--plus3-rom" in p.stderr
     assert "plus3" in p.stderr
     assert "--keymap" in p.stderr
-    assert "--no-hz-lock" in p.stderr
+    assert "--hz-lock" in p.stderr

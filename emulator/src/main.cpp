@@ -62,7 +62,7 @@ static std::string g_config_path = "config.ini";
 static std::string g_model = "spectrum48";
 static std::string g_keymap = "spectrum";
 static bool g_no_system_rom = false;
-static bool g_no_hz_lock = false;
+static bool g_hz_lock = false;
 static volatile sig_atomic_t g_exit_req = 0;
 
 extern "C" {
@@ -660,7 +660,7 @@ static void print_usage(const char* argv0)
             "      --rom FILE        Load a 16K/32K/64K ROM image\n"
             "      --rom-dir DIR     Search DIR for a ROM (default: ./rom)\n"
             "      --no-system-rom   Do not search /usr/share/fuse (default: search)\n"
-            "      --no-hz-lock      Do not switch the X11 output to 50 Hz PAL\n"
+            "      --hz-lock         Switch the X11 output to ~50 Hz PAL (restore on quit)\n"
             "      --trdos-rom FILE  16K TR-DOS ROM (Beta Disk paging)\n"
             "      --plus3-rom FILE  64K +3 ROM, or a directory of plus3-0..3.rom\n"
             "      --config FILE     INI config (default: ./config.ini)\n"
@@ -913,9 +913,9 @@ int main(int argc, char* argv[])
         {
             g_no_system_rom = true;
         }
-        else if (strcmp(a, "--no-hz-lock") == 0)
+        else if (strcmp(a, "--hz-lock") == 0)
         {
-            g_no_hz_lock = true;
+            g_hz_lock = true;
         }
         else if (strncmp(a, "--rom-dir", 9) == 0)
         {
@@ -1158,7 +1158,7 @@ int main(int argc, char* argv[])
         {
             log_debug("SDL_GL_SetSwapInterval(0): %s", SDL_GetError());
         }
-        if (!g_no_hz_lock)
+        if (g_hz_lock)
         {
             std::atexit(hz_lock_restore);
             std::signal(SIGINT, zxem_on_signal);

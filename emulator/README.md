@@ -24,10 +24,10 @@ log check).
 
 The 48K/128K/+3 ULA is **50 Hz PAL** (69 888 T-states/frame). The run loop also
 **sleeps** so one emulated picture takes 20 ms of real time (`SDL_Delay`) — that
-is software pacing, not the panel. On quit ZXEm restores the previous RandR
-mode. `--no-hz-lock` skips the panel switch (default: lock if a ~50 Hz mode
-exists at the current resolution). NTSC Spectrums are 60 Hz; we do not emulate
-those. Do not clock the Z80 at 60 Hz on PAL titles (20% fast).
+is software pacing, not the panel. Optional `--hz-lock` uses libXrandr to switch
+the output to ~50 Hz and restore on quit (default **off**: NVIDIA+GL often
+fails with a black screen). Prove the mode with `./hz50test --seconds 5` first
+(xrandr CLI, no GL). NTSC Spectrums are 60 Hz; we do not emulate those.
 
 `make -s profile`, run a title, `gprof -b ./zxem gmon.out`, then `make -s release`.
 
