@@ -12,6 +12,7 @@
 
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 
 namespace
 {
@@ -30,12 +31,36 @@ bool g_changed = false;
 
 double mode_hz(const XRRModeInfo& m)
 {
-    if (m.hTotal == 0 || m.vTotal == 0)
+    double v_total = static_cast<double>(m.vTotal);
+    if ((m.modeFlags & RR_DoubleScan) != 0)
+    {
+        v_total *= 2.0;
+    }
+    if ((m.modeFlags & RR_Interlace) != 0)
+    {
+        v_total /= 2.0;
+    }
+    if (m.hTotal == 0 || v_total == 0.0)
     {
         return 0.0;
     }
-    return (static_cast<double>(m.dotClock) * 1000.0)
-        / (static_cast<double>(m.hTotal) * static_cast<double>(m.vTotal));
+    /* RandR dotClock is Hz (xrandr.c), not kHz. */
+    double hz = static_cast<double>(m.dotClock)
+        / (static_cast<double>(m.hTotal) * v_total);
+    if (hz > 1000.0)
+    {
+        hz /= 1000.0;
+    }
+    return hz;
+}
+
+bool name_looks_50(const XRRModeInfo& m)
+{
+    if (m.name == nullptr || m.nameLength < 3)
+    {
+        return false;
+    }
+    return std::strstr(m.name, "_50") != nullptr || std::strstr(m.name, "@50") != nullptr;
 }
 
 const XRRModeInfo* find_mode(XRRScreenResources* res, RRMode id)
@@ -100,6 +125,7 @@ bool hz_lock_pal50()
         const double cur_hz = mode_hz(*cur);
         RRMode best_id = None;
         double best_err = 1e9;
+        XRROutputInfo* oi = XRRGetOutputInfo(g_dpy, g_res, ci->outputs[0]);
         for (int m = 0; m < g_res->nmode; m++)
         {
             const XRRModeInfo& mi = g_res->modes[m];
@@ -107,17 +133,43 @@ bool hz_lock_pal50()
             {
                 continue;
             }
+            if (oi != nullptr)
+            {
+                bool on_output = false;
+                for (int om = 0; om < oi->nmode; om++)
+                {
+                    if (oi->modes[om] == mi.id)
+                    {
+                        on_output = true;
+                        break;
+                    }
+                }
+                if (!on_output)
+                {
+                    continue;
+                }
+            }
             const double hz = mode_hz(mi);
-            const double err = std::fabs(hz - 50.0);
+            log_debug("hz-lock: candidate %.*s %.2f Hz",
+                      static_cast<int>(mi.nameLength), mi.name ? mi.name : "?", hz);
+            double err = std::fabs(hz - 50.0);
+            if (name_looks_50(mi))
+            {
+                err = 0.0;
+            }
             if (err < best_err)
             {
                 best_err = err;
                 best_id = mi.id;
             }
         }
-        if (best_id == None || best_err > 0.75)
+        if (oi != nullptr)
         {
-            log_info("hz-lock: no ~50 Hz mode for %ux%u (now %.2f Hz)",
+            XRRFreeOutputInfo(oi);
+        }
+        if (best_id == None || best_err > 1.0)
+        {
+            log_info("hz-lock: no ~50 Hz mode for %ux%u (now %.2f Hz; want 1920x1080_50)",
                      cur->width, cur->height, cur_hz);
             XRRFreeCrtcInfo(ci);
             continue;
