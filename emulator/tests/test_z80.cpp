@@ -257,6 +257,7 @@ TEST_CASE("DDCB BIT (IX+d) is 20 T and does not write back")
     const int t = z.execute();
     REQUIRE(t == 20);
     REQUIRE(z.tstates == 20);
+    REQUIRE((z.R & 0x7F) == 3); /* DD + CB + opcode M1s */
     REQUIRE(ula.read(0x8001) == 0x01);
     REQUIRE(z.A == 0xAA);
 }

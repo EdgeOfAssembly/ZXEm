@@ -11,18 +11,25 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
 
-void DiskMap::put(uint8_t c, uint8_t h, uint8_t r, const uint8_t* p, size_t n)
+void DiskMap::put(uint8_t c, uint8_t h, uint8_t r, const uint8_t* p, size_t n,
+                  size_t file_off)
 {
     if (p == nullptr || n == 0)
     {
         return;
     }
     SectorId id{c, h, r};
-    sectors[id].copies.emplace_back(p, p + n);
+    SectorSlot& slot = sectors[id];
+    if (slot.file_off == static_cast<size_t>(-1) && file_off != static_cast<size_t>(-1))
+    {
+        slot.file_off = file_off;
+    }
+    slot.copies.emplace_back(p, p + n);
 }
 
 void DiskMap::put_replace(uint8_t c, uint8_t h, uint8_t r, const uint8_t* p, size_t n)
@@ -36,6 +43,11 @@ void DiskMap::put_replace(uint8_t c, uint8_t h, uint8_t r, const uint8_t* p, siz
     slot.copies.clear();
     slot.copies.emplace_back(p, p + n);
     slot.rr = 0;
+    dirty = true;
+    if (slot.file_off != static_cast<size_t>(-1) && slot.file_off + n <= backing.size())
+    {
+        std::memcpy(backing.data() + slot.file_off, p, n);
+    }
 }
 
 const uint8_t* DiskMap::find(uint8_t c, uint8_t h, uint8_t r, size_t* len) const
@@ -107,6 +119,8 @@ bool parse_edsk(const uint8_t* data, size_t size, DiskMap& map)
     {
         return false;
     }
+    map.backing.assign(data, data + size);
+    map.dirty = false;
     const int tracks = data[0x30];
     const int sides = data[0x31] == 0 ? 1 : data[0x31];
     const uint16_t std_tsz = static_cast<uint16_t>(data[0x32] | (data[0x33] << 8));
@@ -166,17 +180,19 @@ bool parse_edsk(const uint8_t* data, size_t size, DiskMap& map)
             {
                 one = slen == 0 ? 1u : slen;
             }
+            const size_t file_off = static_cast<size_t>(trk - data) + bpos;
             if (slen >= 2u * one)
             {
                 const uint32_t ncopy = slen / one;
                 for (uint32_t k = 0; k < ncopy; k++)
                 {
-                    map.put(sc.c, sc.h, sc.r, trk + bpos + static_cast<size_t>(k) * one, one);
+                    map.put(sc.c, sc.h, sc.r, trk + bpos + static_cast<size_t>(k) * one, one,
+                            file_off + static_cast<size_t>(k) * one);
                 }
             }
             else
             {
-                map.put(sc.c, sc.h, sc.r, trk + bpos, slen);
+                map.put(sc.c, sc.h, sc.r, trk + bpos, slen, file_off);
             }
             bpos += slen;
         }
@@ -802,10 +818,12 @@ void Vg93::reset()
     drq_ = false;
     intrq_ = false;
     writing_ = false;
+    dirty = false;
 }
 
 void Vg93::set_image(const uint8_t* data, size_t size)
 {
+    dirty = false;
     if (data == nullptr || size == 0)
     {
         image.clear();
@@ -883,6 +901,7 @@ void Vg93::write_data(uint8_t val)
             image.resize(write_off_ + 256u, 0);
         }
         std::memcpy(image.data() + write_off_, buf_.data(), 256);
+        dirty = true;
     }
     writing_ = false;
     drq_ = false;
@@ -1540,4 +1559,49 @@ bool disk_load_spg(const uint8_t* data, size_t size, Z80& z80, ULA& ula)
     }
     log_info("SPG unpacked pages=%d PC=0x%04X SP=0x%04X", bank, z80.PC, z80.SP);
     return bank > 0;
+}
+
+bool disk_dirty(const ULA& ula)
+{
+    return ula.beta.dirty || ula.edsk.dirty;
+}
+
+bool disk_save(const ULA& ula, const char* path)
+{
+    if (path == nullptr || path[0] == '\0')
+    {
+        return false;
+    }
+    const uint8_t* p = nullptr;
+    size_t n = 0;
+    if (ula.beta.dirty && !ula.beta.image.empty())
+    {
+        p = ula.beta.image.data();
+        n = ula.beta.image.size();
+    }
+    else if (ula.edsk.dirty && !ula.edsk.backing.empty())
+    {
+        p = ula.edsk.backing.data();
+        n = ula.edsk.backing.size();
+    }
+    else
+    {
+        log_warn("disk-out: no dirty image to write");
+        return false;
+    }
+    FILE* f = std::fopen(path, "wb");
+    if (f == nullptr)
+    {
+        log_error("disk-out: cannot write %s", path);
+        return false;
+    }
+    const size_t got = std::fwrite(p, 1, n, f);
+    std::fclose(f);
+    if (got != n)
+    {
+        log_error("disk-out: short write %s", path);
+        return false;
+    }
+    log_info("disk-out: wrote %zu bytes to %s", n, path);
+    return true;
 }

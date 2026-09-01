@@ -112,6 +112,25 @@ TEST_CASE("contention delay is 6,5,4,3,2,1,0,0 in the pixel window")
     REQUIRE(ula.io_contention(0xFE) == 0);
 }
 
+TEST_CASE("128K paper and contention start at line 63")
+{
+    ULA ula;
+    ula.setModel128(true);
+    ula.reset();
+    REQUIRE(ula.first_line() == 63);
+    ula.line = 62;
+    ula.line_tstates = ula.first_pixel();
+    REQUIRE(ula.isContended(0x4000) == 0);
+    ula.line = 63;
+    REQUIRE(ula.isContended(0x4000) == 6);
+    ula.ram_banks[5][0] = 0x80;
+    ula.ram_banks[5][0x1800] = 0x07;
+    uint32_t pixels[ULA::SCREEN_WIDTH * ULA::SCREEN_HEIGHT];
+    ula.renderFrame(pixels, ULA::SCREEN_WIDTH * 4);
+    const int idx = (ula.first_line() * ULA::SCREEN_WIDTH) + ULA::BORDER_LEFT;
+    REQUIRE(pixels[idx] == 0xFFCDCDCD);
+}
+
 TEST_CASE("48K t_frame is 69888")
 {
     ULA ula;
@@ -138,9 +157,12 @@ TEST_CASE("128K t_frame is 70908")
     REQUIRE(ula.take_frame_irq());
     ula.setPlus3(true);
     REQUIRE(ula.t_frame() == 70908);
+    REQUIRE(ula.first_line() == 63);
+    REQUIRE(ula.first_pixel() == 128);
     ula.setModel128(false);
     REQUIRE(ula.t_frame() == 69888);
     REQUIRE(ula.cpu_hz() == 3500000);
+    REQUIRE(ula.first_line() == 64);
 }
 
 TEST_CASE("key 0 clears bit 0 on port 0xEFFE")
@@ -235,8 +257,8 @@ TEST_CASE("floating bus follows 128K shadow screen bank")
     ula.port7ffd = 0x08;
     ula.ram_banks[5][0] = 0x11;
     ula.ram_banks[7][0] = 0x99;
-    ula.line = 64;
-    ula.line_tstates = ULA::ULA_FIRST_PIXEL;
+    ula.line = ula.first_line();
+    ula.line_tstates = ula.first_pixel();
     REQUIRE(ula.ioRead(0xFF) == 0x99);
     ula.port7ffd = 0x00;
     REQUIRE(ula.ioRead(0xFF) == 0x11);

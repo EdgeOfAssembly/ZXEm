@@ -42,6 +42,8 @@ struct SectorSlot
 {
     std::vector<std::vector<uint8_t>> copies;
     mutable size_t rr = 0;
+    /** @brief Byte offset of copy 0 in @ref DiskMap::backing, or SIZE_MAX. */
+    size_t file_off = static_cast<size_t>(-1);
 };
 
 /** @brief In-memory CHS sector store (EDSK). */
@@ -49,6 +51,9 @@ class DiskMap
 {
 public:
     std::map<SectorId, SectorSlot> sectors;
+    /** @brief Original EDSK bytes; FDC writes patch copy 0 in place when @c file_off is set. */
+    std::vector<uint8_t> backing;
+    bool dirty = false;
 
     /**
      * @brief Store a sector copy; appends if CHS already exists (weak sector).
@@ -57,8 +62,10 @@ public:
      * @param[in] r Sector ID.
      * @param[in] p Payload bytes.
      * @param[in] n Payload length.
+     * @param[in] file_off Offset of this copy in @ref backing, or SIZE_MAX.
      */
-    void put(uint8_t c, uint8_t h, uint8_t r, const uint8_t* p, size_t n);
+    void put(uint8_t c, uint8_t h, uint8_t r, const uint8_t* p, size_t n,
+             size_t file_off = static_cast<size_t>(-1));
 
     /**
      * @brief Replace all copies at CHS with one payload (FDC write).
@@ -134,6 +141,7 @@ class Vg93
 {
 public:
     std::vector<uint8_t> image;
+    bool dirty = false;
     uint8_t track = 0;
     uint8_t sector = 1;
     uint8_t side = 0;
@@ -175,3 +183,14 @@ bool disk_load_spg(const uint8_t* data, size_t size, Z80& z80, ULA& ula);
 
 /** @brief Attach a raw TRD blob to the VG93 so a user TR-DOS ROM can read it. */
 void disk_attach_trd(ULA& ula, const uint8_t* data, size_t size);
+
+/**
+ * @brief True if VG93 TRD or EDSK backing was written this session.
+ */
+bool disk_dirty(const ULA& ula);
+
+/**
+ * @brief Write the dirty in-memory disk to @p path (TRD bytes or patched EDSK).
+ * @return false if nothing to write or the file could not be created.
+ */
+bool disk_save(const ULA& ula, const char* path);

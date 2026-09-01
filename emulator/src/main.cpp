@@ -65,6 +65,8 @@ static std::string g_plus3_rom_path;
 static std::string g_config_path = "config.ini";
 static std::string g_model = "spectrum48";
 static std::string g_keymap = "spectrum";
+/** @brief If set, write a dirty TRD/EDSK image here on exit (default: discard). */
+static std::string g_disk_out;
 /** @brief 48K ULA issue: "2" or "3" (default 3). 128K/+3 always read as 3. */
 static std::string g_issue = "3";
 static bool g_no_system_rom = false;
@@ -722,6 +724,7 @@ static void print_usage(const char* argv0)
             "      --trace-io        Log I/O ports (default: off)\n"
             "      --keymap NAME     spectrum (default) or wasd (WASD+LCtrl)\n"
             "      --issue 2|3       48K ULA keyboard bits 5/7 (default: 3)\n"
+            "      --disk-out FILE   Write dirty TRD/DSK image on exit (default: discard)\n"
             "      --verbose         Same as --log-level debug\n"
             "\n"
             "Formats: %s\n"
@@ -1031,6 +1034,13 @@ static int parse_cli(int argc, char** argv,
         else if (strncmp(a, "--issue", 7) == 0)
         {
             if (!take_value(i, argc, argv, "--issue", g_issue))
+            {
+                return 1;
+            }
+        }
+        else if (strncmp(a, "--disk-out", 10) == 0)
+        {
+            if (!take_value(i, argc, argv, "--disk-out", g_disk_out))
             {
                 return 1;
             }
@@ -1562,7 +1572,24 @@ int main(int argc, char* argv[])
                 {
                 }
             }
+            else if (now - next_deadline > frame_ticks)
+            {
+                /* Missed more than one frame (stall): re-anchor, do not turbo. */
+                next_deadline = now;
+            }
             end_ula_frame_latches();
+        }
+    }
+
+    if (disk_dirty(ula))
+    {
+        if (g_disk_out.empty())
+        {
+            log_warn("disk changes discarded (pass --disk-out FILE to keep them)");
+        }
+        else if (!disk_save(ula, g_disk_out.c_str()))
+        {
+            log_error("disk-out failed");
         }
     }
 

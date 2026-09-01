@@ -1307,6 +1307,7 @@ int Z80::op_FDCB(uint8_t d)
 int Z80::op_idxCB(uint16_t index, uint8_t d)
 {
     const uint8_t op = fetch8();
+    inc_R(); /* third M1: the CB opcode byte */
     const uint16_t addr = static_cast<uint16_t>(index + static_cast<int8_t>(d));
     const uint8_t dest = static_cast<uint8_t>(op & 7u);
     const uint8_t y = static_cast<uint8_t>((op >> 3) & 7u);

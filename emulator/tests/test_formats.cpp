@@ -9,6 +9,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <cstdio>
 #include <cstring>
+#include <unistd.h>
 #include <vector>
 
 static std::vector<uint8_t> make_tap_code()
@@ -517,6 +518,19 @@ TEST_CASE("VG93 WRITE SECTOR persists and READ SECTOR returns it")
     {
         REQUIRE(ula.beta.read_data() == 0x5A);
     }
+    REQUIRE(disk_dirty(ula));
+    char path[] = "/tmp/zxem-trd-XXXXXX";
+    const int fd = mkstemp(path);
+    REQUIRE(fd >= 0);
+    REQUIRE(close(fd) == 0);
+    REQUIRE(disk_save(ula, path));
+    FILE* f = fopen(path, "rb");
+    REQUIRE(f != nullptr);
+    uint8_t b = 0;
+    REQUIRE(fread(&b, 1, 1, f) == 1);
+    fclose(f);
+    REQUIRE(b == 0x5A);
+    REQUIRE(unlink(path) == 0);
 }
 
 TEST_CASE("uPD765 WRITE DATA persists and READ DATA returns it")
@@ -564,6 +578,13 @@ TEST_CASE("uPD765 WRITE DATA persists and READ DATA returns it")
     ula.fdc.write_data(0xFF);
     REQUIRE((ula.fdc.read_msr() & 0x20) != 0);
     REQUIRE(ula.fdc.read_data() == 0x5A);
+    REQUIRE(disk_dirty(ula));
+    char path[] = "/tmp/zxem-dsk-XXXXXX";
+    const int fd = mkstemp(path);
+    REQUIRE(fd >= 0);
+    REQUIRE(close(fd) == 0);
+    REQUIRE(disk_save(ula, path));
+    REQUIRE(unlink(path) == 0);
 }
 
 static uint8_t z80_ram_pattern(uint32_t i)

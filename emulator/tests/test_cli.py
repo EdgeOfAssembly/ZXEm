@@ -41,7 +41,7 @@ def test_version_flags() -> None:
     for flag in ("-v", "--version"):
         p = run([flag])
         assert p.returncode == 0, flag
-        assert "zxem 0.8" in p.stdout
+        assert "zxem 0.9" in p.stdout
         assert "verbose" not in p.stdout.lower()
 
 
@@ -66,6 +66,7 @@ def test_help_lists_system_rom_and_disk_flags() -> None:
     assert "plus3" in p.stderr
     assert "--keymap" in p.stderr
     assert "--issue" in p.stderr
+    assert "--disk-out" in p.stderr
     assert "CLI flags" in p.stderr
     assert "compiled defaults" in p.stderr
 

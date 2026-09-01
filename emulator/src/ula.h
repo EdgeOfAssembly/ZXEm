@@ -23,9 +23,13 @@ public:
         int lines;
         int t_frame;
         int cpu_hz;
+        /** @brief First paper scanline after INT (48K 64, 128K 63). */
+        int first_line;
+        /** @brief T-states into the line of the first paper pixel (left+retrace). */
+        int first_pixel;
     };
-    static constexpr Timing kTiming48{224, 312, 69888, 3500000};
-    static constexpr Timing kTiming128{228, 311, 70908, 3546900};
+    static constexpr Timing kTiming48{224, 312, 69888, 3500000, 64, 128};
+    static constexpr Timing kTiming128{228, 311, 70908, 3546900, 63, 128};
     Timing timing{kTiming48};
     uint8_t rom[16384];
     uint8_t rom1[16384];
@@ -194,6 +198,8 @@ public:
     int lines() const { return timing.lines; }
     int t_frame() const { return timing.t_frame; }
     int cpu_hz() const { return timing.cpu_hz; }
+    int first_line() const { return timing.first_line; }
+    int first_pixel() const { return timing.first_pixel; }
     /**
      * @brief Extra T-states for the current raster slot (6,5,4,3,2,1,0,0 or 0).
      * @return Wait in T-states; 0 outside the 192×128 pixel window.
@@ -225,11 +231,11 @@ public:
 
 [[gnu::always_inline]] inline int ULA::contention_delay() const
 {
-    if (static_cast<unsigned>(line - ULA_FIRST_LINE) >= 192u)
+    if (static_cast<unsigned>(line - timing.first_line) >= 192u)
     {
         return 0;
     }
-    const int t = line_tstates - ULA_FIRST_PIXEL;
+    const int t = line_tstates - timing.first_pixel;
     if (static_cast<unsigned>(t) >= 128u)
     {
         return 0;
@@ -254,11 +260,11 @@ public:
     {
         return 0xFF;
     }
-    if (static_cast<unsigned>(line - ULA_FIRST_LINE) >= 192u)
+    if (static_cast<unsigned>(line - timing.first_line) >= 192u)
     {
         return 0xFF;
     }
-    const int t = line_tstates - ULA_FIRST_PIXEL;
+    const int t = line_tstates - timing.first_pixel;
     if (static_cast<unsigned>(t) >= 128u)
     {
         return 0xFF;
@@ -269,7 +275,7 @@ public:
     {
         return 0xFF;
     }
-    const int y = line - ULA_FIRST_LINE;
+    const int y = line - timing.first_line;
     const int col = ((t >> 3) << 1) | ((phase >= 2) ? 1 : 0);
     const int screen_bank = (is128 && (port7ffd & 0x08)) ? 7 : 5;
     const uint8_t* const scr = ram_banks[screen_bank];

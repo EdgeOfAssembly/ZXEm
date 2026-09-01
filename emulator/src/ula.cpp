@@ -390,11 +390,11 @@ void ULA::renderFrame(uint32_t* pixels, int pitch)
             row[x] = border_c;
         }
 
-        if (static_cast<unsigned>(y - ULA_FIRST_LINE) >= static_cast<unsigned>(PAPER_HEIGHT))
+        if (static_cast<unsigned>(y - timing.first_line) >= static_cast<unsigned>(PAPER_HEIGHT))
         {
             continue;
         }
-        const int py = y - ULA_FIRST_LINE;
+        const int py = y - timing.first_line;
         const uint8_t* bits = scr + kLineBmp[static_cast<size_t>(py)];
         const uint8_t* attrs = scr + 0x1800 + ((py >> 3) << 5);
         uint32_t* dst = row + BORDER_LEFT;
