@@ -9,14 +9,14 @@
 #include <vector>
 #include <zip.h>
 
-TEST_CASE("vfs_split_spec understands hash members")
+TEST_CASE("vfs_split_spec leaves a plain path with # unchanged when prefix is not a zip")
 {
     std::string archive;
     std::string member;
-    const bool zip = vfs_split_spec("/mnt/Games.zip#Games/Manic Miner/x.z80", archive, member);
-    REQUIRE(zip);
-    REQUIRE(archive == "/mnt/Games.zip");
-    REQUIRE(member == "Games/Manic Miner/x.z80");
+    const bool zip = vfs_split_spec("Foo #1.tap", archive, member);
+    REQUIRE_FALSE(zip);
+    REQUIRE(archive == "Foo #1.tap");
+    REQUIRE(member.empty());
 }
 
 TEST_CASE("vfs_is_playable_name accepts ZX extensions")

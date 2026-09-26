@@ -9,6 +9,7 @@
 #include "vfs.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <dirent.h>
 #include <sys/stat.h>
@@ -1207,7 +1208,11 @@ bool load_trdos_rom_file(const char* path, ULA& ula)
 
 bool load_system_roms(ULA& ula, const char* model)
 {
-    const char* dir = "/usr/share/fuse";
+    const char* dir = std::getenv("ZXEM_SYSTEM_ROM_DIR");
+    if (dir == nullptr || dir[0] == '\0')
+    {
+        dir = "rom";
+    }
     const char* m = (model != nullptr) ? model : "spectrum48";
     if (strcmp(m, "plus3") == 0 || strcmp(m, "spectrum+3") == 0)
     {
@@ -1216,8 +1221,12 @@ bool load_system_roms(ULA& ula, const char* model)
     if (strcmp(m, "spectrum128") == 0)
     {
         uint8_t buf[32768];
-        FILE* f0 = fopen("/usr/share/fuse/128-0.rom", "rb");
-        FILE* f1 = fopen("/usr/share/fuse/128-1.rom", "rb");
+        char p0[512];
+        char p1[512];
+        std::snprintf(p0, sizeof(p0), "%s/128-0.rom", dir);
+        std::snprintf(p1, sizeof(p1), "%s/128-1.rom", dir);
+        FILE* f0 = fopen(p0, "rb");
+        FILE* f1 = fopen(p1, "rb");
         if (f0 == nullptr || f1 == nullptr)
         {
             if (f0 != nullptr)

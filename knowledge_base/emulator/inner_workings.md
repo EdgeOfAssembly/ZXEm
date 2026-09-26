@@ -2,7 +2,7 @@
 
 ## Overview
 
-The emulator in `/tmp/reverse/emulator/` is a minimal but accurate-enough ZX Spectrum 48K machine built specifically to run the 1983 Bug-Byte release of *Manic Miner* from a `.z80` snapshot. It uses SDL2 for video, audio, keyboard, and joystick input, and is written in C++17-compatible C++.
+ZXEm is a ZX Spectrum 48K/128K/+3 machine using SDL2 for video, audio, keyboard, and joystick, written in C++23.
 
 ## Architecture
 
@@ -207,10 +207,10 @@ The emulator loads an INI-style `config.ini` by default, with sections `[emulato
 
 ```ini
 [emulator]
-game = /tmp/reverse/Manic_Miner_1983_Bug_Byte_Software.z80
+; game = game.z80
 
 [rom]
-file = /tmp/zx-roms/spectrum16-48/spec48.rom
+; file = 48.rom
 rom_dir = rom
 ```
 

@@ -51,7 +51,7 @@ A naive byte-scan of the entire RAM found many apparent ROM references, but thes
 
 ## 4. Screen Verification
 
-Generated `/tmp/reverse/screen.png` from the snapshot's bitmap (0x4000-0x57FF) and attributes (0x5800-0x5AFF).
+Decoded the snapshot bitmap (0x4000-0x57FF) and attributes (0x5800-0x5AFF).
 
 - Bitmap: 1908/6144 non-zero bytes (screen has visible content)
 - Attributes: 703/768 non-zero bytes (color data present)

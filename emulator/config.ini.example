@@ -1,31 +1,24 @@
-; ZX Spectrum 48K Emulator configuration file
-; Copy this file to config.ini next to the zxem binary
-; and edit the paths to match your system.
+; ZX Spectrum emulator configuration
+; Copy to config.ini next to the zxem binary and edit.
 ;
 ; Precedence: CLI flags > this INI > compiled defaults.
 ; `zxem --keymap spectrum --config this.ini` keeps spectrum even if
 ; [input] keymap = wasd below. --config may appear anywhere on argv.
 
 [emulator]
-; Path to the .z80 snapshot to load on startup.
-; Quote the value if it contains # or ; (those start comments when unquoted):
-;   game = "/mnt/games/Foo #1/bar.z80"
-game = /tmp/reverse/Manic_Miner_1983_Bug_Byte_Software.z80
+; Path to a snapshot or tape you own. Quote if the value contains # or ; :
+;   game = "Foo #1/bar.z80"
+; game = game.z80
 
-; Machine model to emulate. Currently only 'spectrum48' is supported.
-; Future options may include: spectrum128, plus2, plus2a, plus3.
+; spectrum48 (default), spectrum128, or plus3
 model = spectrum48
 
 [rom]
-; Path to a real 16KB Spectrum 48K ROM image.
-; If this is set, it takes priority over rom_dir.
-; Leave empty or comment out to use rom_dir or the synthetic ROM.
-; file = /tmp/zx-roms/spectrum16-48/spec48.rom
+; 16KB Spectrum 48K ROM image you own (not shipped).
+; file = 48.rom
 
-; Directory to scan for a ROM if 'file' is not set.
-; The emulator looks for known filenames (48.rom, spectrum.rom, etc.)
-; or any 16384-byte file in this directory.
-; If no ROM is found, a legally clean synthetic ROM is generated.
+; Directory to scan if 'file' is not set (48.rom, spectrum.rom, or any 16384-byte file).
+; If none is found, a synthetic ROM is generated.
 rom_dir = rom
 
 [hardware]

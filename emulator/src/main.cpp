@@ -709,7 +709,7 @@ static void print_usage(const char* argv0)
             "      --model MODEL     spectrum48 (default), spectrum128, or plus3\n"
             "      --rom FILE        Load a 16K/32K/64K ROM image\n"
             "      --rom-dir DIR     Search DIR for a ROM (default: ./rom)\n"
-            "      --no-system-rom   Do not search /usr/share/fuse (default: search)\n"
+            "      --no-system-rom   Do not search installed system ROMs (default: search)\n"
             "      --trdos-rom FILE  16K TR-DOS ROM (Beta Disk paging)\n"
             "      --plus3-rom FILE  64K +3 ROM, or a directory of plus3-0..3.rom\n"
             "      --config FILE     INI (default: ./config.ini); CLI flags always win\n"

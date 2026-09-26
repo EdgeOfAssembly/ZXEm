@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Headless batch test runner for the ZXEm ZX Spectrum emulator.
 
-Runs ./zxem on each supported file under /mnt/games with --headless --frames N,
+Runs ./zxem on each supported file under ZXEM_GAMES (default ./games) with --headless --frames N,
 captures stdout/stderr/exit status, and writes a JSON test log.
 
 Pass is not "process still alive". ZXEM_HEARTBEAT=1 makes zxem print
@@ -23,7 +23,7 @@ from typing import Any
 
 EMULATOR_DIR = Path(__file__).resolve().parent
 ZXEM = EMULATOR_DIR / "zxem"
-GAMES_DIR = Path("/mnt/games")
+GAMES_DIR = Path(os.environ.get("ZXEM_GAMES", str(EMULATOR_DIR / "games")))
 LOG_FILE = EMULATOR_DIR / "batch_test_log.json"
 MAX_FILES = 200
 FRAMES = 50

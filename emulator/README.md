@@ -1,36 +1,29 @@
-# ZXEm — ZX Spectrum Emulator
+# ZXEm — details
 
-SDL2 ZX Spectrum 48K/128K emulator. Loads the World of Spectrum-style
-collection from the filesystem **or from a zip archive in-place** (no extract).
+See the [top-level README](../README.md) for the 3-step play path and the
+legal notice: **no ROMs or games are shipped**.
 
-Version **0.9**.
+Version **0.9**. Binary after `make release` (from the repo root or here):
+`zxem` in this directory, or `emulator/zxem` from the repo root.
 
 ## Build
 
-Requires SDL2, SDL2_image, libzip, zlib, and g++ (C++23):
+Needs SDL2, SDL2_image, libzip, zlib, and g++ (C++23):
 
 ```bash
 make -s -j"$(nproc)"          # debug: -O0 + ASan/UBSan (slow; for bugs)
 make -s test
 make -s verify
-make -s release               # play/ship: -O3 -DNDEBUG, no sanitizers, no -g
+make -s release               # play: -O3 -DNDEBUG, no sanitizers
 ```
 
-Default `make` is **not** for playing. ASan plus `-O0` makes keys feel sluggish
-because one Spectrum frame can take much more than 20 ms of host time. Use
-`make -s release` then `./zxem GAME`. `--trace-cpu` / `--trace-io` still work
-on the release binary (selected once at startup; the fast path has no per-opcode
-log check).
+Default `make` is **not** for playing. Use **`make release`**.
 
-The 48K/128K/+3 ULA is **50 Hz PAL** (69 888 T-states/frame). The run loop
-**sleeps** so one emulated picture takes 20 ms of wall time (`SDL_Delay`).
-Laptop eDP panels generally cannot do 50 Hz; we do not change RandR modes.
-Window icon: `icons/zxem.svg` and `icons/zxem.png`.
+The 48K/128K/+3 ULA is **50 Hz PAL**. The run loop sleeps so one emulated
+picture takes 20 ms of wall time. Window icon: `icons/zxem.svg`.
 
-`make -s profile`, run a title, `gprof -b ./zxem gmon.out`, then `make -s release`.
-
-Click the ZXEm window so it has keyboard focus. Number-row and keypad `0`–`9`
-both map to the Spectrum keys (Knight Lore: **1** keyboard, then **0** start).
+Click the window so it has keyboard focus. Number-row and keypad `0`–`9`
+both map to the Spectrum keys.
 
 ## Run
 
@@ -42,15 +35,15 @@ No arguments prints usage (same as `-h` / `--help`). `-v` / `--version`
 prints `zxem 0.9`. Options and inputs may be interleaved.
 
 **Precedence:** CLI flags **always** win over INI (`--config` / `./config.ini`),
-which wins over compiled defaults. `--config` may appear anywhere on the
-command line; remaining flags still override that file.
+which wins over compiled defaults.
 
 ```bash
-./zxem /path/to/game.z80
-./zxem /mnt/Games.zip --list
-./zxem /mnt/Games.zip#Games/Manic\ Miner/Manic\ Miner\ (1983)(Bug-Byte).z80
-./zxem /mnt/Games.zip --member 'Manic Miner'
+./zxem game.z80
+./zxem games.zip --list
+./zxem games.zip#folder/title.z80
+./zxem games.zip --member 'title'
 ./zxem --model spectrum128 game.sna
+./zxem --rom 48.rom game.tap
 ./zxem --headless --frames 100 game.tap
 ./zxem --pok game.pok game.z80
 ```
@@ -64,9 +57,9 @@ command line; remaining flags still override that file.
 | `--list` | off | List playable files in a dir/zip to stdout |
 | `--member NAME` | | Substring match inside a zip (prefers snapshots) |
 | `--model MODEL` | spectrum48 | `spectrum48`, `spectrum128`, or `plus3` |
-| `--rom FILE` | synthetic | 16K/32K/64K ROM image |
+| `--rom FILE` | synthetic | 16K/32K/64K ROM image you own |
 | `--rom-dir DIR` | `./rom` | Search for a ROM |
-| `--no-system-rom` | search on | Skip `/usr/share/fuse` |
+| `--no-system-rom` | search on | Skip `ZXEM_SYSTEM_ROM_DIR` / `./rom` auto-search |
 | `--trdos-rom FILE` | off | 16K TR-DOS ROM (Beta Disk) |
 | `--plus3-rom FILE` | off | 64K +3 ROM or dir of `plus3-0..3.rom` |
 | `--config FILE` | `./config.ini` | INI (CLI flags always override INI) |
@@ -92,8 +85,6 @@ Loaded: `.z80` `.sna` `.szx` `.sp` `.slt` `.tap` `.tzx` `.scl` `.trd` `.rom` `.d
 Recognised but not loaded: `.ipf` (CAPS flux), `.csw` (use TAP/TZX), packed `.spg`, compressed `.udi`  
 Archives: `.zip` via libzip (STORE or deflate) — **never extracted to disk**.
 
-`/mnt/Games.zip` is the 1.7 GiB STORE archive of `/mnt/games`.
-
 ### Tape / disk fast-load
 
 TAP/TZX inject CODE blocks and jump to the last CODE start, and also feed
@@ -110,8 +101,8 @@ and AY-3-8912 on `0xFFFD`/`0xBFFD`.
 ### Headless batch
 
 ```bash
-./zxem --headless --frames 50 /mnt/games/Manic\ Miner/*.z80
-ZXEM_HEARTBEAT=1 python3 batch_test.py
+./zxem --headless --frames 50 game.z80
+ZXEM_HEARTBEAT=1 ZXEM_GAMES=./games python3 batch_test.py
 ```
 
 `ZXEM_HEARTBEAT=1` prints `Frame N, PC=… FRAMES=… scr=…` at load, every 50
@@ -137,8 +128,6 @@ keymap = wasd
 | S / Down | Kempston down |
 | Left Ctrl | jump (Q) + Kempston fire |
 
-Knight Lore: **1** then **0** (keyboard) or **2** then **0** (Kempston); both work with `wasd`.
-
 | Always | |
 |--------|--|
 | arrows | Kempston (also with default keymap) |
@@ -150,5 +139,5 @@ Knight Lore: **1** then **0** (keyboard) or **2** then **0** (Kempston); both wo
 
 ## Legal
 
-No Sinclair ROM is shipped. A synthetic ROM is generated unless you pass
-`--rom` with a ROM you own. See `../knowledge_base/legal/`.
+No Sinclair or Amstrad ROM is shipped. No game files are shipped. A synthetic
+ROM is generated unless you pass `--rom` with a ROM you own.

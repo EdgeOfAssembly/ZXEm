@@ -28,12 +28,12 @@ TEST_CASE("Config keeps # and ; inside quoted values")
     REQUIRE(mkdtemp(dir) != nullptr);
     const std::string path = std::string(dir) + "/c.ini";
     REQUIRE(write_ini(path,
-                      "game = \"/mnt/games/Foo #1/bar.z80\"\n"
+                      "game = \"Foo #1/bar.z80\"\n"
                       "note = 'a;b#c'\n"));
 
     Config cfg;
     REQUIRE(cfg.load(path.c_str()));
-    REQUIRE(cfg.getString("global", "game") == "/mnt/games/Foo #1/bar.z80");
+    REQUIRE(cfg.getString("global", "game") == "Foo #1/bar.z80");
     REQUIRE(cfg.getString("global", "note") == "a;b#c");
 
     unlink(path.c_str());
@@ -45,11 +45,11 @@ TEST_CASE("Config strips unquoted ; comments")
     char dir[] = "/tmp/zxem-cfg-XXXXXX";
     REQUIRE(mkdtemp(dir) != nullptr);
     const std::string path = std::string(dir) + "/c.ini";
-    REQUIRE(write_ini(path, "game = /tmp/a.z80  ; comment\n"));
+    REQUIRE(write_ini(path, "game = a.z80  ; comment\n"));
 
     Config cfg;
     REQUIRE(cfg.load(path.c_str()));
-    REQUIRE(cfg.getString("global", "game") == "/tmp/a.z80");
+    REQUIRE(cfg.getString("global", "game") == "a.z80");
 
     unlink(path.c_str());
     rmdir(dir);

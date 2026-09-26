@@ -31,7 +31,7 @@ static std::string trim(const std::string& s) {
  * @brief Truncate @p line at the first `;` or `#` that is not inside quotes.
  *
  * Single- and double-quoted spans are honoured so paths like
- * `"/mnt/games/Foo #1/bar.z80"` keep the hash. Quotes themselves are left
+ * `"Foo #1/bar.z80"` keep the hash. Quotes themselves are left
  * in place for the caller to strip after trim.
  */
 static void strip_ini_comment(char* line)

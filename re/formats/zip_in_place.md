@@ -1,14 +1,13 @@
 # Zip in-place load
 
-`/mnt/Games.zip` is a 1.7 GiB PKZIP archive, compression method **store**
-(no deflate on members). ZXEm never extracts it to disk.
+ZXEm never extracts zip archives to disk. Members are read into RAM.
 
 ## Path syntax
 
 ```text
-zxem /mnt/Games.zip --list
-zxem /mnt/Games.zip#Games/Manic Miner/foo.z80
-zxem /mnt/Games.zip --member 'Manic Miner'
+zxem games.zip --list
+zxem games.zip#folder/title.z80
+zxem games.zip --member 'title'
 ```
 
 `#` is the canonical member separator. `zip:member` is also accepted when

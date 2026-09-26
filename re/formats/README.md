@@ -27,5 +27,3 @@ Index of era formats the emulator understands. Dual-write with pmem
 | CSW | tape pulses | detect | Use TAP/TZX |
 | IPF | flux | detect | CAPS — not loaded |
 | ZIP | archive | in-place | libzip; `zip#member` — no extract |
-
-Collection: `/mnt/games` (extracted) and `/mnt/Games.zip` (STORE, 1.7G, 82729 files).

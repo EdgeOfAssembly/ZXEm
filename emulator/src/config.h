@@ -11,7 +11,7 @@
  * @brief INI loader: optional `[section]`, `key = value`, `;`/`#` comments.
  *
  * Comments are stripped only outside single or double quotes so a value like
- * `"/mnt/games/Foo #1/bar.z80"` keeps the hash. Matching surrounding quotes
+ * `"Foo #1/bar.z80"` keeps the hash. Matching surrounding quotes
  * are removed after trim. Keys and section names are case-insensitive.
  */
 class Config {

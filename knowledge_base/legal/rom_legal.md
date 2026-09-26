@@ -12,7 +12,7 @@ The Sinclair ZX Spectrum 48K/128K ROMs are copyrighted software. Amstrad (now pa
 
 ### Our synthetic ROM
 
-The emulator in `/tmp/reverse/emulator/` does **not** contain or use a real Spectrum ROM. It generates a minimal synthetic 16KB ROM at runtime with only:
+ZXEm does **not** contain or use a real Spectrum ROM. It generates a minimal synthetic 16KB ROM at runtime with only:
 
 - A reset vector: `DI ; JP 0x9303`
 - An IM1 interrupt handler: `EI ; RET`
@@ -93,8 +93,7 @@ This gives users the option of full Spectrum compatibility without putting any c
 A real Spectrum 48K ROM (`spec48.rom`, 16KB, copyright Amstrad, used with permission from the Spectrum For Everyone collection) was tested with:
 
 ```bash
-./zxem --rom /tmp/zx-roms/spectrum16-48/spec48.rom \
-                 /tmp/reverse/Manic_Miner_1983_Bug_Byte_Software.z80
+./zxem --rom 48.rom game.z80
 ```
 
 The emulator loaded the ROM successfully and the game ran. This confirms the `--rom` path works for maximum authenticity. The ROM file itself is **not** copied into the emulator repository; it is only loaded from an external path at runtime.

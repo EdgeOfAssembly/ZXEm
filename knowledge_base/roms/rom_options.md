@@ -11,13 +11,13 @@ The emulator synthesizes a minimal 16KB ROM at runtime. See `../emulator/inner_w
 The emulator now supports `--rom FILE` and `--rom-dir DIR`:
 
 ```bash
-./zxem --rom /tmp/zx-roms/spectrum16-48/spec48.rom game.z80
+./zxem --rom 48.rom game.z80
 ./zxem --rom-dir rom game.z80
 ```
 
 If a real 16KB ROM is loaded, it is mapped to `0x0000-0x3FFF`. The emulator still loads the snapshot state directly into RAM and CPU registers and starts at the snapshot PC, bypassing the ROM boot sequence. This is the correct behaviour for snapshot-based play.
 
-Tested successfully with `/tmp/zx-roms/spectrum16-48/spec48.rom`.
+Pass a 16KB 48K ROM you own; it is not stored in this repository.
 
 ### Option 2: Open-source replacement ROMs
 

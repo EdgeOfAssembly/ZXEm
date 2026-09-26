@@ -8,6 +8,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <unistd.h>
 #include <vector>
@@ -222,20 +223,18 @@ TEST_CASE("SPG unpacked maps a page and PC")
     REQUIRE(ula.read(0xC000) == 0xC9);
 }
 
-TEST_CASE("Knight Lore SNA starts when key 0 is held")
+TEST_CASE("optional SNA starts when key 0 is held")
 {
     VfsBlob blob;
-    const char* path =
-        "/mnt/games/Knight Lore/Knight Lore (1984)(Ultimate Play The Game).sna";
-    if (!vfs_read(path, blob))
+    const char* path = std::getenv("ZXEM_TEST_SNA");
+    if (path == nullptr || !vfs_read(path, blob))
     {
-        SKIP("Knight Lore SNA not mounted");
+        SKIP("set ZXEM_TEST_SNA to a 48K .sna you own");
     }
     Z80 z80;
     ULA ula;
     z80.ula = &ula;
     ula.reset();
-    (void)load_rom_file("/usr/share/fuse/48.rom", ula);
     REQUIRE(media_load(blob, z80, ula));
 
     auto run_frames = [&](int frames) {
