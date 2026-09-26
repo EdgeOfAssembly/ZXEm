@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.jpg" alt="ZXEm — ZX Spectrum Emulator" width="320">
+</p>
+
 # ZXEm
 
 ZX Spectrum 48K / 128K / +3 emulator (SDL2).
