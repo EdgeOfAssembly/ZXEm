@@ -10,9 +10,7 @@ ZX Spectrum 48K / 128K / +3 emulator (SDL2).
 game files.** You must supply your own copies. That is a legal requirement,
 not an optional extra.
 
-<video src="docs/play-demo.mp4" controls width="720"></video>
-
-[Play demo](docs/play-demo.mp4)
+[![Play demo](docs/play-demo.png)](docs/play-demo.mp4)
 
 ## In a hurry (3 steps)
 
