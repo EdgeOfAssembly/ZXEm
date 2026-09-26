@@ -39,3 +39,10 @@ a sanitizer debug build — use **`make release`** to play.
 
 More flags and controls: [`emulator/README.md`](emulator/README.md).
 Leftovers: [`TODO.md`](TODO.md).
+
+## License
+
+[MIT](LICENSE).
+
+**Author:** EdgeOfAssembly  
+**Contact:** [haxbox2000@gmail.com](mailto:haxbox2000@gmail.com)
